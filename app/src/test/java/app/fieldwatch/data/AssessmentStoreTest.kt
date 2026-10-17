@@ -29,6 +29,54 @@ class AssessmentStoreTest {
     private fun wifiReport() = WifiSecurityReport(bssid = "AA:BB:CC:DD:EE:01", ssid = "Private lab", channel = 6, frequencyMhz = 2437,
         firstSeen = 10, lastSeen = 20, capturedAt = 30, capabilities = "[ESS]", parsedSecurity = null, analysis = WifiSecurityAnalysis.describe("[ESS]"))
 
+    private fun operatorBaseline() = HandsetBaseline(capturedAt = 1, manufacturer = "FixtureBrand", model = "FixtureModel", androidRelease = "16", sdk = 36,
+        securityPatch = "2026-09-05", buildDisplay = "private-build-label", appVersion = "test", appTargetSdk = 35,
+        hardwareReported = HandsetBaseline.FEATURES.associateWith { true }, permissions = HandsetBaseline.PERMISSIONS.associateWith { BaselinePermission.DENIED })
+
+    @Test fun operatorBaselineIsEncryptedAndSeparateFromTargetsAndFindings() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Authorized lab")
+        store.saveOperatorBaseline(engagement, operatorBaseline())
+        val saved = store.archive.value.engagements.single()
+        assertEquals(operatorBaseline(), saved.operatorBaselines.single())
+        assertTrue(saved.assets.isEmpty()); assertTrue(saved.runs.isEmpty()); assertTrue(saved.evidence.isEmpty())
+        assertTrue(saved.findings.isEmpty()); assertTrue(saved.access.isEmpty())
+        assertFalse(file.readBytes().toString(Charsets.ISO_8859_1).contains("private-build-label"))
+        val reopened = store(file)
+        reopened.load()
+        assertEquals(store.archive.value, reopened.archive.value)
+    }
+
+    @Test fun invalidAndClosedBaselineWritesDoNotMutateVault() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Authorized lab")
+        val before = file.readBytes()
+        try { store.saveOperatorBaseline(engagement, operatorBaseline().copy(securityPatch = "2026-02-30")); fail("Expected invalid baseline rejection") }
+        catch (_: IllegalArgumentException) { }
+        assertArrayEquals(before, file.readBytes())
+        store.close(engagement)
+        try { store.saveOperatorBaseline(engagement, operatorBaseline()); fail("Expected closed engagement rejection") }
+        catch (_: IllegalArgumentException) { }
+        assertTrue(store.archive.value.engagements.single().operatorBaselines.isEmpty())
+    }
+
+    @Test fun operatorBaselineLimitRejectsFurtherWritesAtomically() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Authorized lab")
+        repeat(20) { store.saveOperatorBaseline(engagement, operatorBaseline().copy(capturedAt = it + 1L)) }
+        val before = file.readBytes()
+        try { store.saveOperatorBaseline(engagement, operatorBaseline()); fail("Expected baseline limit rejection") }
+        catch (_: IllegalArgumentException) { }
+        assertArrayEquals(before, file.readBytes())
+        assertEquals(20, store.archive.value.engagements.single().operatorBaselines.size)
+    }
+
     private fun referenceReport(exposed: Boolean = true): ServiceInspectionReport {
         val response = "HTTP/1.0 ${if (exposed) "200 OK" else "401 Unauthorized"}\r\n" +
             "X-Fieldwatch-Lab-Product: fieldwatch-reference-camera\r\nX-Fieldwatch-Lab-Protocol: 1\r\n" +

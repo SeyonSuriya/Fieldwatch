@@ -25,6 +25,7 @@ import java.util.Date
 @Composable
 fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: () -> Unit, vm: AssessmentViewModel = viewModel()) {
     ProtectAssessmentScreen()
+    val context = LocalContext.current
     val archive by vm.archive.collectAsStateWithLifecycle()
     val selectedId by vm.selected.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
@@ -38,6 +39,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
     var checkPreview by remember(selectedId) { mutableStateOf<CheckEvaluation?>(null) }
     var checkError by remember(selectedId) { mutableStateOf<String?>(null) }
     var devicePreview by remember(selectedId) { mutableStateOf<DeviceValidationReport?>(null) }
+    var operatorPreview by remember(selectedId) { mutableStateOf<HandsetBaseline?>(null) }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json"), vm::writeReport)
     LaunchedEffect(exportRequested) {
         if (exportRequested) {
@@ -86,10 +88,21 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                         Text("${selected.assets.size} targets · ${selected.runs.size} observations · ${selected.evidence.size} evidence notes · ${selected.findings.size} findings")
                         Text(if (selected.closedAt == null) "Open" else "Closed · read-only")
                         OutlinedButton(onClick = { dialog = "asset" }, enabled = editable) { Text("Add target") }
+                        OutlinedButton(onClick = {
+                            runCatching { app.fieldwatch.data.HandsetBaselineCollector.capture(context) }
+                                .onSuccess { operatorPreview = it }.onFailure { checkError = "Handset baseline unavailable: ${it.message}" }
+                        }, enabled = editable) { Text("Review this phone's baseline") }
                         OutlinedButton(onClick = { vm.prepareReport(false) }, enabled = !busy) { Text("Export summary") }
                         OutlinedButton(onClick = { dialog = "full-export" }, enabled = !busy) { Text("Export full report") }
                         if (selected.closedAt == null) TextButton(onClick = { dialog = "close" }, enabled = editable) { Text("Close engagement") }
                         TextButton(onClick = { dialog = "delete" }, enabled = !busy) { Text("Delete engagement") }
+                    }
+                    if (selected.operatorBaselines.isNotEmpty()) SectionCard("Operator handset baselines (${selected.operatorBaselines.size}/20)") {
+                        Text("These records describe phones running Fieldwatch, not remote targets. Hardware/permission reports do not verify radio operation, root or external hardware.")
+                        selected.operatorBaselines.asReversed().forEach { baseline ->
+                            HorizontalDivider()
+                            OperatorBaselineDetails(baseline)
+                        }
                     }
                     if (selected.assets.isEmpty()) Text("Add a target identifier such as a MAC address, hostname or service endpoint. Adding a record does not connect to it.")
                     selected.assets.forEach { asset ->
@@ -141,6 +154,15 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
         text = { Text(notice.orEmpty()) }, confirmButton = { TextButton(onClick = vm::dismissNotice) { Text("OK") } })
     if (checkError != null) AlertDialog(onDismissRequest = { checkError = null }, title = { Text("Check unavailable") },
         text = { Text(checkError.orEmpty()) }, confirmButton = { TextButton(onClick = { checkError = null }) { Text("OK") } })
+    operatorPreview?.let { preview -> AlertDialog(onDismissRequest = { operatorPreview = null }, title = { Text("This phone's operator baseline") },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Captured locally from the phone running Fieldwatch. This does not identify or inspect a remote target.")
+            OperatorBaselineDetails(preview)
+            Text("No IMEI, serial, Android ID, addresses, location, accounts or radio traffic are collected. Root/external-radio operation and Android 16 compatibility remain unverified. Model/patch data does not prove vulnerability status.")
+            Text("Saving encrypts this frozen snapshot in the selected engagement. Full exports include it; summaries include only the count. Limit: 20 snapshots per engagement.")
+        } },
+        confirmButton = { TextButton(onClick = { vm.saveOperatorBaseline(preview); operatorPreview = null }, enabled = !busy) { Text("Save encrypted baseline") } },
+        dismissButton = { TextButton(onClick = { operatorPreview = null }) { Text("Cancel") } }) }
     checkPreview?.let { preview -> AlertDialog(onDismissRequest = { checkPreview = null }, title = { Text("Saved-observation checks v${preview.registryVersion}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Text("Offline review only. No target traffic, credential attempts or exploitation. Not observed is not a security pass; confirmed applies only to the narrow recorded condition.")
@@ -180,13 +202,23 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
             targetEvidence?.let { vm.recordFinding(it, title, body, severity) }; dialog = null
         }
         "full-export" -> ConfirmAssessmentDialog("Export full report?",
-            "Includes target identifiers, scope, findings and all evidence notes in unencrypted JSON. Save only to a destination you intend to trust.",
+            "Includes target identifiers, scope, findings, all evidence notes and saved operator-phone metadata in unencrypted JSON. Save only to a destination you intend to trust.",
             "Export", { dialog = null }) { vm.prepareReport(true); dialog = null }
         "close" -> ConfirmAssessmentDialog("Close engagement?", "Finish or cancel running observations first. Closed records remain exportable but cannot be edited.",
             "Close", { dialog = null }) { vm.close(); dialog = null }
         "delete" -> ConfirmAssessmentDialog("Delete engagement?", "Permanently removes this record and its evidence from the app. Export a full report first if you need a copy. Existing exported copies are not deleted.",
             "Delete", { dialog = null }) { vm.delete(); dialog = null }
     }
+}
+
+@Composable
+private fun OperatorBaselineDetails(baseline: HandsetBaseline) {
+    Text("${baseline.manufacturer ?: "Unknown manufacturer"} · ${baseline.model ?: "Unknown model"}")
+    Text("Android ${baseline.androidRelease ?: "unknown"} · SDK ${baseline.sdk}\nSecurity patch: ${baseline.securityPatch ?: "unavailable"}\nBuild display: ${baseline.buildDisplay ?: "unavailable"}\nBuild incremental: ${baseline.buildIncremental ?: "unavailable"}")
+    Text("Fieldwatch ${baseline.appVersion} · app target SDK ${baseline.appTargetSdk}\nCaptured: ${DateFormat.getDateTimeInstance().format(Date(baseline.capturedAt))}")
+    baseline.hardwareReported.forEach { (feature, reported) -> Text("${feature.replace('_', ' ')} hardware: ${if (reported) "reported" else "not reported"}", style = MaterialTheme.typography.bodySmall) }
+    baseline.permissions.forEach { (name, status) -> Text("${name.replace('_', ' ')} permission: ${status.name.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.bodySmall) }
+    Text("Reported metadata only; no operational radio, root, external-hardware or vulnerability verification.", style = MaterialTheme.typography.bodySmall)
 }
 
 @Composable

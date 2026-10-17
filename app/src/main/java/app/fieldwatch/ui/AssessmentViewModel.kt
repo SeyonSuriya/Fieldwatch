@@ -75,6 +75,11 @@ class AssessmentViewModel(application: Application) : AndroidViewModel(applicati
             else "This source/version already has a saved reference validation; no duplicate was added."
     }
 
+    fun saveOperatorBaseline(baseline: HandsetBaseline) = action {
+        store.saveOperatorBaseline(selectedId(), baseline)
+        mutableNotice.value = "This phone's operator baseline was saved encrypted. It is not a remote-target profile or a verified capability/vulnerability result."
+    }
+
     fun close() = action { store.close(selectedId()) }
     fun delete() = action { store.delete(selectedId()); mutableSelected.value = null }
 

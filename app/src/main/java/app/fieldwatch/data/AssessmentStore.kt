@@ -252,6 +252,15 @@ class AssessmentStore(
         return recorded
     }
 
+    suspend fun saveOperatorBaseline(engagementId: String, baseline: HandsetBaseline) {
+        val frozen = baseline.copy(hardwareReported = baseline.hardwareReported.toMap(), permissions = baseline.permissions.toMap())
+        frozen.validate()
+        edit(engagementId) { engagement ->
+            require(engagement.operatorBaselines.size < AssessmentRules.MAX_OPERATOR_BASELINES) { "Operator baseline limit reached (20). Use another engagement for additional baselines." }
+            engagement.copy(operatorBaselines = engagement.operatorBaselines + frozen)
+        }
+    }
+
     suspend fun finishObservation(engagementId: String, runId: String, cancelled: Boolean = false) {
         edit(engagementId) { engagement ->
             val run = engagement.runs.singleOrNull { it.id == runId } ?: error("Observation not found.")

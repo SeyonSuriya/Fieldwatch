@@ -89,6 +89,7 @@ data class AssessmentEngagement(
     val evidence: List<AssessmentEvidence> = emptyList(),
     val findings: List<AssessmentFinding> = emptyList(),
     val access: List<AssessmentAccess> = emptyList(),
+    val operatorBaselines: List<HandsetBaseline> = emptyList(),
 )
 
 @Serializable
@@ -103,6 +104,7 @@ object AssessmentRules {
     const val MAX_RUNS = 2000
     const val MAX_EVIDENCE = 2000
     const val MAX_FINDINGS = 1000
+    const val MAX_OPERATOR_BASELINES = 20
     const val MAX_ARCHIVE_BYTES = 8 * 1024 * 1024
     const val MAX_NOTE_BYTES = 64 * 1024
 
@@ -122,6 +124,8 @@ object AssessmentRules {
         require(archive.engagements.size <= MAX_ENGAGEMENTS) { "Too many engagements." }
         unique(archive.engagements.map { it.id })
         for (engagement in archive.engagements) {
+            require(engagement.operatorBaselines.size <= MAX_OPERATOR_BASELINES) { "Operator baseline limit reached (20)." }
+            engagement.operatorBaselines.forEach { it.validate() }
             require(engagement.assets.size <= MAX_ASSETS && engagement.runs.size <= MAX_RUNS &&
                 engagement.evidence.size <= MAX_EVIDENCE && engagement.findings.size <= MAX_FINDINGS) {
                 "Engagement storage limit reached."
@@ -204,6 +208,7 @@ data class AssessmentSummary(
     val findingSeverities: Map<FindingSeverity, Int>,
     val findingConfidences: Map<FindingConfidence, Int>,
     val accessResultCount: Int,
+    val operatorBaselineCount: Int = 0,
 )
 
 object AssessmentReports {
@@ -214,7 +219,7 @@ object AssessmentReports {
         return json.encodeToString(AssessmentReport(
             exportedAt = now,
             appVersion = appVersion,
-            disclosure = if (full) "Full report: contains scope, identifiers, notes and evidence. Export is unencrypted."
+            disclosure = if (full) "Full report: contains scope, identifiers, notes, evidence and operator-phone metadata. Export is unencrypted."
                 else "Summary only: identifiers, scope, free text, evidence content and hashes are omitted.",
             engagement = engagement.takeIf { full },
             summary = if (full) null else AssessmentSummary(
@@ -224,6 +229,7 @@ object AssessmentReports {
                 findingSeverities = engagement.findings.groupingBy { it.severity }.eachCount(),
                 findingConfidences = engagement.findings.groupingBy { it.confidence }.eachCount(),
                 accessResultCount = engagement.access.size,
+                operatorBaselineCount = engagement.operatorBaselines.size,
             ),
         ))
     }

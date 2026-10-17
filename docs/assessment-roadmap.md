@@ -49,7 +49,9 @@ M5 software slice: built-in versioned offline check registry with eight Wi-Fi/se
 
 M6a software slice: module contract with explicit identity/build prerequisites, support level, fixture revision, side effects and recovery; one LAB ONLY reference module; paired synthetic exposed/protected HTTP target modes using a shared fixture manifest; reviewable outcomes, encrypted reports, provenance-linked synthetic findings and restart-safe deduplication. The development APK builds; all 685 Android/JVM tests across 53 suites and 4 actual loopback HTTP fixture tests pass. See [device-validation.md](device-validation.md). No manufacturer device, CVE exploit or access record is supported by this reference module.
 
-Next implementation step: M6b real-product fixture onboarding and device-specific validation. The Samsung A51 was proposed; its testing role, exact variant, firmware/build and patch level remain to be confirmed. M6 remains incomplete until affected/unaffected product behavior and handset checks are verified. A model name, banner, HTTP 200 or certificate failure alone must not establish a CVE or device-access claim.
+M6b prerequisite slice: reviewable operator-handset baseline capture from public local Android APIs, encrypted engagement storage, bounded history, summary/full export separation and legacy-schema compatibility. The development APK builds and all 696 JVM tests across 54 suites pass. It keeps operator-phone metadata separate from target records and makes no vulnerability/capability verdict. See [handset-baseline.md](handset-baseline.md) for Android 16 packaging review and physical checks.
+
+Next implementation step: finish M6b real-product fixture onboarding and device-specific validation. The user corrected the earlier A51 label to SM-A56B/DS, Android 16, security patch 2026-09-05; its operator/target role and exact firmware/build remain unconfirmed. M6 remains incomplete until affected/unaffected product behavior and handset checks are verified. A model name, banner, HTTP 200 or certificate failure alone must not establish a CVE or device-access claim.
 
 ## Required phase completion report
 
@@ -73,6 +75,8 @@ M4b suggested message: `feat: add scoped service inspection and Wi-Fi security e
 M5 suggested message: `feat: add versioned evidence checks and linked configuration findings`.
 
 M6a suggested message: `feat: add reference device validation and paired lab fixtures`.
+
+M6b prerequisite suggested message: `feat: add encrypted operator handset baselines and compatibility reporting`.
 
 ## Initial check selection method
 
