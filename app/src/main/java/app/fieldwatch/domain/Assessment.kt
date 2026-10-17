@@ -61,6 +61,8 @@ data class AssessmentFinding(
     val confidence: FindingConfidence = FindingConfidence.SUSPECTED,
     val evidenceIds: List<String>,
     val createdAt: Long,
+    val checkId: String? = null,
+    val checkVersion: Int? = null,
 )
 
 /** Schema for future validated access; a recorded observation never creates access. */
@@ -156,6 +158,8 @@ object AssessmentRules {
                 require(sha256(bytes) == it.sha256) { "Evidence digest mismatch." }
             }
             engagement.findings.forEach {
+                require((it.checkId == null) == (it.checkVersion == null)) { "Finding check metadata is incomplete." }
+                require(it.checkId == null || (it.checkId.isNotBlank() && it.checkId.length <= 100 && it.checkVersion!! > 0))
                 text(it.title, 120, "Finding title must be 1–120 characters.")
                 text(it.description, 4000, "Finding description must be 1–4000 characters.")
                 require(it.assetId in assets && it.evidenceIds.isNotEmpty() &&

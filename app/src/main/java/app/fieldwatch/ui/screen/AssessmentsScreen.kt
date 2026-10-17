@@ -35,6 +35,8 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
     var dialog by remember(selectedId) { mutableStateOf<String?>(null) }
     var targetRun by remember(selectedId) { mutableStateOf<String?>(null) }
     var targetEvidence by remember(selectedId) { mutableStateOf<String?>(null) }
+    var checkPreview by remember(selectedId) { mutableStateOf<CheckEvaluation?>(null) }
+    var checkError by remember(selectedId) { mutableStateOf<String?>(null) }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json"), vm::writeReport)
     LaunchedEffect(exportRequested) {
         if (exportRequested) {
@@ -50,7 +52,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(14.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionCard("Assessment workspace") {
-                Text("Create an authorized scope and record targets, observations and evidence. Automated vulnerability checks and access modules arrive in later milestones.")
+                Text("Create an authorized scope and record targets, observations and evidence. Versioned checks review saved service/Wi-Fi evidence without contacting targets. Device-specific validation and access modules remain later milestones.")
                 Text("Evidence is encrypted locally with a key in Android Keystore. Full exports are unencrypted. Existing scan logs are separate.", style = MaterialTheme.typography.bodySmall)
             }
             if (Build.VERSION.SDK_INT < 33) {
@@ -108,7 +110,11 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                                 HorizontalDivider()
                                 Text(evidence.title, style = MaterialTheme.typography.titleSmall)
                                 Text(evidence.text)
-                                Text("Source: operator note · catalog ${evidence.catalogVersion}\nSHA-256: ${evidence.sha256}", style = MaterialTheme.typography.bodySmall)
+                                Text("Source: ${evidence.source} · catalog ${evidence.catalogVersion}\nSHA-256: ${evidence.sha256}", style = MaterialTheme.typography.bodySmall)
+                                if (AssessmentChecks.supports(evidence.source)) OutlinedButton(onClick = {
+                                    runCatching { AssessmentChecks.evaluate(selected, evidence.id, System.currentTimeMillis()) }
+                                        .onSuccess { checkPreview = it }.onFailure { checkError = "This evidence cannot be evaluated: ${it.message}" }
+                                }, enabled = editable) { Text("Review versioned checks") }
                                 TextButton(onClick = { targetEvidence = evidence.id; dialog = "finding" }, enabled = editable) { Text("Record suspected finding") }
                             }
                             selected.findings.filter { it.assetId == asset.id }.forEach { finding ->
@@ -116,7 +122,9 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                                 Text("${finding.confidence} · ${finding.severity}")
                                 Text(finding.title, style = MaterialTheme.typography.titleSmall)
                                 Text(finding.description)
-                                Text("Supported by ${finding.evidenceIds.size} evidence note(s). Not automatically validated.", style = MaterialTheme.typography.bodySmall)
+                                Text(if (finding.checkId == null) "Supported by ${finding.evidenceIds.size} evidence note(s). Operator assessment."
+                                    else "Check ${finding.checkId} v${finding.checkVersion} · ${finding.evidenceIds.size} evidence links. Confidence applies only to the stated condition.", style = MaterialTheme.typography.bodySmall)
+                                finding.evidenceIds.forEach { id -> Text("Evidence: $id", style = MaterialTheme.typography.bodySmall) }
                             }
                         }
                     }
@@ -126,6 +134,21 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
     }
     if (notice != null) AlertDialog(onDismissRequest = vm::dismissNotice, title = { Text("Assessment notice") },
         text = { Text(notice.orEmpty()) }, confirmButton = { TextButton(onClick = vm::dismissNotice) { Text("OK") } })
+    if (checkError != null) AlertDialog(onDismissRequest = { checkError = null }, title = { Text("Check unavailable") },
+        text = { Text(checkError.orEmpty()) }, confirmButton = { TextButton(onClick = { checkError = null }) { Text("OK") } })
+    checkPreview?.let { preview -> AlertDialog(onDismissRequest = { checkPreview = null }, title = { Text("Saved-observation checks v${preview.registryVersion}") },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Offline review only. No target traffic, credential attempts or exploitation. Not observed is not a security pass; confirmed applies only to the narrow recorded condition.")
+            preview.results.forEach { result ->
+                val check = AssessmentChecks.definition(result.checkId)
+                Text("${check.title} · ${result.outcome}", style = MaterialTheme.typography.titleSmall)
+                Text(result.explanation)
+                if (result.outcome == CheckOutcome.CONDITION_OBSERVED) Text("${check.severity} · ${check.confidence}\n${check.remediation}")
+            }
+            Text("Saving records every result and creates findings only for observed conditions. Raw evidence and evaluation are linked; no access record is created.")
+        } },
+        confirmButton = { TextButton(onClick = { vm.evaluateEvidence(preview.sourceEvidenceId); checkPreview = null }, enabled = !busy) { Text("Save check results") } },
+        dismissButton = { TextButton(onClick = { checkPreview = null }) { Text("Cancel") } }) }
     when (dialog) {
         "create" -> TextEntryDialog("New engagement", "Name", "Authorized targets, boundaries and assessment notes", 100, 4000,
             onDismiss = { dialog = null }) { name, scope -> vm.create(name, scope); dialog = null }

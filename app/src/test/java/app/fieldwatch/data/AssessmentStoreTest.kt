@@ -29,6 +29,104 @@ class AssessmentStoreTest {
     private fun wifiReport() = WifiSecurityReport(bssid = "AA:BB:CC:DD:EE:01", ssid = "Private lab", channel = 6, frequencyMhz = 2437,
         firstSeen = 10, lastSeen = 20, capturedAt = 30, capabilities = "[ESS]", parsedSecurity = null, analysis = WifiSecurityAnalysis.describe("[ESS]"))
 
+    @Test fun versionedEvaluationsAreLinkedEncryptedAndIdempotent() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Authorized lab")
+        store.saveWifiSecurity(engagement, wifiReport(), 94)
+        val source = store.archive.value.engagements.single().evidence.single()
+        assertEquals(1, store.evaluateEvidence(engagement, source.id, 94))
+        val saved = store.archive.value.engagements.single()
+        val finding = saved.findings.single()
+        val evaluation = saved.evidence.single { it.source == "versioned-check-evaluation" }
+        val report = kotlinx.serialization.json.Json.decodeFromString<CheckEvaluation>(evaluation.text)
+        assertEquals(source.sha256, report.sourceSha256)
+        assertEquals(4, report.results.size)
+        assertEquals("wifi-open", finding.checkId)
+        assertEquals(1, finding.checkVersion)
+        assertEquals(FindingConfidence.SUSPECTED, finding.confidence)
+        assertEquals(listOf(source.id, evaluation.id), finding.evidenceIds)
+        assertTrue(saved.access.isEmpty())
+        assertEquals(0, store.evaluateEvidence(engagement, source.id, 94))
+        assertEquals(saved, store.archive.value.engagements.single())
+        assertFalse(file.readBytes().toString(Charsets.ISO_8859_1).contains("wifi-open"))
+        val reopened = store(file)
+        reopened.load()
+        assertEquals(store.archive.value, reopened.archive.value)
+        val summary = AssessmentReports.export(saved, false, 2000, "test")
+        assertFalse(summary.contains("wifi-open")); assertFalse(summary.contains(source.id))
+        assertTrue(AssessmentReports.export(saved, true, 2000, "test").contains("wifi-open"))
+    }
+
+    @Test fun cleartextEvaluationConfirmsOnlyTheTransportCondition() = runBlocking {
+        val store = store(File(temp.newFolder(), "vault.bin"))
+        store.load()
+        val engagement = store.create("Lab", "Authorized lab")
+        store.saveServiceReport(engagement, serviceReport().copy(attemptedRequestHex = ServiceInspection.hex(ServiceInspection.request("192.168.1.1", 80))), 94)
+        val source = store.archive.value.engagements.single().evidence.single()
+        assertEquals(1, store.evaluateEvidence(engagement, source.id, 94))
+        val saved = store.archive.value.engagements.single()
+        assertEquals("http-cleartext", saved.findings.single().checkId)
+        assertEquals(FindingConfidence.CONFIRMED, saved.findings.single().confidence)
+        assertTrue(saved.access.isEmpty())
+    }
+
+    @Test fun inconclusiveChecksAreSavedWithoutFindings() = runBlocking {
+        val store = store(File(temp.newFolder(), "vault.bin"))
+        store.load()
+        val engagement = store.create("Lab", "Authorized lab")
+        store.saveServiceReport(engagement, serviceReport().copy(receivedHex = "", outcome = "timeout"), 94)
+        val source = store.archive.value.engagements.single().evidence.single()
+        assertEquals(0, store.evaluateEvidence(engagement, source.id, 94))
+        val saved = store.archive.value.engagements.single()
+        assertEquals(2, saved.evidence.size)
+        assertTrue(saved.findings.isEmpty()); assertTrue(saved.access.isEmpty())
+    }
+
+    @Test fun closedAndUnsupportedEvidenceCannotCreateEvaluations() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Authorized lab")
+        val asset = store.addAsset(engagement, "Lab", "192.168.1.1", AssessmentTransport.NETWORK)
+        val run = store.startObservation(engagement, asset)
+        val note = store.addEvidence(engagement, run, "Note", "HTTP/1.1 200 OK", 94)
+        store.finishObservation(engagement, run)
+        val before = file.readBytes()
+        try { store.evaluateEvidence(engagement, note, 94); fail("Expected unsupported source rejection") }
+        catch (_: IllegalArgumentException) { }
+        assertArrayEquals(before, file.readBytes())
+        store.saveWifiSecurity(engagement, wifiReport(), 94)
+        val source = store.archive.value.engagements.single().evidence.last()
+        store.close(engagement)
+        try { store.evaluateEvidence(engagement, source.id, 94); fail("Expected closed engagement rejection") }
+        catch (_: IllegalArgumentException) { }
+        assertTrue(store.archive.value.engagements.single().findings.isEmpty())
+    }
+
+    @Test fun failedEvaluationWriteDoesNotPublishFindingsOrPartialEvidence() = runBlocking {
+        var failWrites = false
+        val delegate = AesGcmAssessmentCipher { key }
+        val cipher = object : AssessmentCipher {
+            override fun encrypt(plain: ByteArray): ByteArray { check(!failWrites) { "Injected failure" }; return delegate.encrypt(plain) }
+            override fun decrypt(sealed: ByteArray) = delegate.decrypt(sealed)
+        }
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file, cipher)
+        store.load()
+        val engagement = store.create("Lab", "Authorized lab")
+        store.saveWifiSecurity(engagement, wifiReport(), 94)
+        val before = store.archive.value
+        val bytes = file.readBytes()
+        val source = before.engagements.single().evidence.single()
+        failWrites = true
+        try { store.evaluateEvidence(engagement, source.id, 94); fail("Expected write failure") }
+        catch (_: IllegalStateException) { }
+        assertEquals(before, store.archive.value)
+        assertArrayEquals(bytes, file.readBytes())
+    }
+
     @Test fun serviceAndWifiSnapshotsRemainEncryptedAndReuseMatchingAssets() = runBlocking {
         val file = File(temp.newFolder(), "vault.bin")
         val store = store(file)

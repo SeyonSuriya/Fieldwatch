@@ -45,7 +45,9 @@ M4a software slice: explicitly confirmed connected-Wi-Fi IPv4 scopes; bounded TC
 
 M4b software slice: explicit single-endpoint banner/HTTP HEAD/TLS/HTTPS HEAD inspection; bounded response captures and conservative protocol labels; numeric-IP TLS endpoint verification with no insecure fallback; frozen Wi-Fi security snapshots; encrypted per-asset evidence for both report types. The development APK builds and all 645 tests across 51 suites pass. See [network-assessment.md](network-assessment.md) for protocol, deadline, certificate and handset limits. M4 software implementation is complete for the documented connected-Wi-Fi IPv4/TCP scope; physical verification remains pending.
 
-Next implementation milestone: M5 versioned vulnerability checks with evidence and explicit confidence. Start with observable configuration/service checks and reproducible fixtures; a banner or certificate failure alone must not establish a CVE or device-access claim.
+M5 software slice: built-in versioned offline check registry with eight Wi-Fi/service configuration checks; condition/not-observed/inconclusive/not-applicable outcomes; review-before-save; confidence-limited findings with check versions and original/evaluation evidence links; encrypted atomic persistence and same-source/version deduplication. The development APK builds and all 669 tests across 52 suites pass. See [versioned-checks.md](versioned-checks.md). These are synthetic observation fixtures, not affected/fixed product certifications; handset verification remains pending. No CVE matching, credential attempts, exploitation or access records were added.
+
+Next implementation milestone: M6 device-specific validation modules, beginning with reproducible lab fixtures and explicit target/version prerequisites. Supported product modules still require affected/unaffected lab validation; a banner, HTTP 200 or certificate failure alone must not establish a CVE or device-access claim.
 
 ## Required phase completion report
 
@@ -65,6 +67,8 @@ M3 suggested message: `feat: add scoped BLE GATT inspection and Classic RFCOMM t
 M4a suggested message: `feat: add scoped Wi-Fi network checks and security observations`.
 
 M4b suggested message: `feat: add scoped service inspection and Wi-Fi security evidence`.
+
+M5 suggested message: `feat: add versioned evidence checks and linked configuration findings`.
 
 ## Initial check selection method
 

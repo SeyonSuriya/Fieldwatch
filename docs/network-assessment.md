@@ -2,6 +2,8 @@
 
 M4a introduced connected-network observations. M4b adds explicit service inspection and dedicated Wi-Fi security evidence snapshots. Device-specific vulnerability checks remain later milestones. Scope is numeric IPv4 on connected Wi-Fi; no universal service inventory or vulnerability coverage is implied.
 
+M5 now provides [versioned offline checks](versioned-checks.md) on these saved snapshots, with explicit outcomes, confidence and source links. Collecting or saving M4 evidence alone still creates no findings or access records.
+
 ## Operation
 
 On Android 13+, open Assessments → Network and Wi-Fi assessment. Choose an open engagement, review its scope, enter one numeric IPv4 address or a /24–/32 range, and choose up to 16 comma-separated TCP ports. The final confirmation lists the scope and ports. A run permits at most 256 address/port pairs. Narrow the range when using multiple ports.

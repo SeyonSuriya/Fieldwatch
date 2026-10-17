@@ -64,6 +64,11 @@ class AssessmentViewModel(application: Application) : AndroidViewModel(applicati
         store.recordFinding(selectedId(), evidenceId, title, description, severity)
     }
 
+    fun evaluateEvidence(evidenceId: String) = action {
+        val added = store.evaluateEvidence(selectedId(), evidenceId, app.config.config.value.version)
+        mutableNotice.value = "Checks recorded: $added new finding(s). Repeating checks on the same evidence/version adds no duplicates. Inconclusive and not-observed results are retained in the evaluation evidence."
+    }
+
     fun close() = action { store.close(selectedId()) }
     fun delete() = action { store.delete(selectedId()); mutableSelected.value = null }
 

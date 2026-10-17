@@ -196,6 +196,35 @@ class AssessmentStore(
         }
     }
 
+    suspend fun evaluateEvidence(engagementId: String, evidenceId: String, catalogVersion: Int): Int {
+        var added = 0
+        edit(engagementId) { engagement ->
+            val evaluation = AssessmentChecks.evaluate(engagement, evidenceId, now())
+            // Immutable evidence + registry version identifies a reproducible evaluation.
+            val existing = engagement.evidence.filter { it.source == "versioned-check-evaluation" }.any {
+                val previous = json.decodeFromString<CheckEvaluation>(it.text)
+                previous.sourceEvidenceId == evidenceId && previous.sourceSha256 == evaluation.sourceSha256 && previous.registryVersion == AssessmentChecks.VERSION
+            }
+            if (existing) return@edit engagement
+            val run = AssessmentRun(id(), evaluation.assetId, evaluation.evaluatedAt, checkId = "observation-checks",
+                checkVersion = AssessmentChecks.VERSION, status = AssessmentRunStatus.RECORDED, endedAt = evaluation.evaluatedAt)
+            val body = json.encodeToString(evaluation)
+            val evidence = AssessmentEvidence(id(), evaluation.assetId, run.id, "Versioned observation checks", body,
+                AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), evaluation.evaluatedAt,
+                source = "versioned-check-evaluation", appVersion = appVersion, catalogVersion = catalogVersion)
+            val findings = evaluation.results.filter { it.outcome == CheckOutcome.CONDITION_OBSERVED }.map { result ->
+                val check = AssessmentChecks.definition(result.checkId)
+                AssessmentFinding(id(), evaluation.assetId, check.title,
+                    "${result.explanation}\nRecommended action: ${check.remediation}\nReferences: ${check.references.joinToString()}\nBased only on the saved observation; not a CVE, exploitation or access verdict.",
+                    check.severity, check.confidence, listOf(evidenceId, evidence.id), evaluation.evaluatedAt,
+                    checkId = result.checkId, checkVersion = result.checkVersion)
+            }
+            added = findings.size
+            engagement.copy(runs = engagement.runs + run, evidence = engagement.evidence + evidence, findings = engagement.findings + findings)
+        }
+        return added
+    }
+
     suspend fun finishObservation(engagementId: String, runId: String, cancelled: Boolean = false) {
         edit(engagementId) { engagement ->
             val run = engagement.runs.singleOrNull { it.id == runId } ?: error("Observation not found.")
