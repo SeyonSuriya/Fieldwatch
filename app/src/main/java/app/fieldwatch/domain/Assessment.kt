@@ -1,0 +1,226 @@
+package app.fieldwatch.domain
+
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import java.security.MessageDigest
+
+@Serializable
+enum class AssessmentTransport { WIFI, BLE, BLUETOOTH_CLASSIC, NETWORK }
+
+@Serializable
+enum class AssessmentRunStatus { RUNNING, RECORDED, CANCELLED, INTERRUPTED, FAILED }
+
+@Serializable
+enum class FindingConfidence { SUSPECTED, CONFIRMED }
+
+@Serializable
+enum class FindingSeverity { INFORMATIONAL, LOW, MEDIUM, HIGH, CRITICAL }
+
+@Serializable
+data class AssessmentAsset(
+    val id: String,
+    val label: String,
+    val identifier: String,
+    val transport: AssessmentTransport,
+    val addedAt: Long,
+)
+
+@Serializable
+data class AssessmentRun(
+    val id: String,
+    val assetId: String,
+    val startedAt: Long,
+    val checkId: String = "operator-observation",
+    val checkVersion: Int = 1,
+    val status: AssessmentRunStatus = AssessmentRunStatus.RUNNING,
+    val endedAt: Long? = null,
+)
+
+@Serializable
+data class AssessmentEvidence(
+    val id: String,
+    val assetId: String,
+    val runId: String,
+    val title: String,
+    val text: String,
+    val sha256: String,
+    val capturedAt: Long,
+    val source: String = "operator-note",
+    val appVersion: String,
+    val catalogVersion: Int,
+)
+
+@Serializable
+data class AssessmentFinding(
+    val id: String,
+    val assetId: String,
+    val title: String,
+    val description: String,
+    val severity: FindingSeverity,
+    val confidence: FindingConfidence = FindingConfidence.SUSPECTED,
+    val evidenceIds: List<String>,
+    val createdAt: Long,
+)
+
+/** Schema for future validated access; a recorded observation never creates access. */
+@Serializable
+data class AssessmentAccess(
+    val id: String,
+    val assetId: String,
+    val runId: String,
+    val service: String,
+    val demonstratedOperations: List<String>,
+    val evidenceIds: List<String>,
+    val recordedAt: Long,
+)
+
+@Serializable
+data class AssessmentEngagement(
+    val id: String,
+    val name: String,
+    val scope: String,
+    val createdAt: Long,
+    val closedAt: Long? = null,
+    val assets: List<AssessmentAsset> = emptyList(),
+    val runs: List<AssessmentRun> = emptyList(),
+    val evidence: List<AssessmentEvidence> = emptyList(),
+    val findings: List<AssessmentFinding> = emptyList(),
+    val access: List<AssessmentAccess> = emptyList(),
+)
+
+@Serializable
+data class AssessmentArchive(
+    val formatVersion: Int = 1,
+    val engagements: List<AssessmentEngagement> = emptyList(),
+)
+
+object AssessmentRules {
+    const val MAX_ENGAGEMENTS = 100
+    const val MAX_ASSETS = 500
+    const val MAX_RUNS = 2000
+    const val MAX_EVIDENCE = 2000
+    const val MAX_FINDINGS = 1000
+    const val MAX_ARCHIVE_BYTES = 8 * 1024 * 1024
+    const val MAX_NOTE_BYTES = 64 * 1024
+
+    fun text(value: String, max: Int, message: String): String {
+        val clean = value.trim()
+        require(clean.isNotEmpty() && clean.length <= max) { message }
+        require(clean.none { it == '\u0000' }) { "Text cannot contain null characters." }
+        return clean
+    }
+
+    fun sha256(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256")
+        .digest(bytes).joinToString("") { "%02x".format(it.toInt() and 255) }
+
+    /** Reject inconsistent evidence rather than silently accepting an incomplete archive. */
+    fun validate(archive: AssessmentArchive) {
+        require(archive.formatVersion == 1) { "Unsupported assessment archive version." }
+        require(archive.engagements.size <= MAX_ENGAGEMENTS) { "Too many engagements." }
+        unique(archive.engagements.map { it.id })
+        for (engagement in archive.engagements) {
+            require(engagement.assets.size <= MAX_ASSETS && engagement.runs.size <= MAX_RUNS &&
+                engagement.evidence.size <= MAX_EVIDENCE && engagement.findings.size <= MAX_FINDINGS) {
+                "Engagement storage limit reached."
+            }
+            text(engagement.name, 100, "Engagement name must be 1–100 characters.")
+            text(engagement.scope, 4000, "Scope must be 1–4000 characters.")
+            unique(engagement.assets.map { it.id })
+            unique(engagement.runs.map { it.id })
+            unique(engagement.evidence.map { it.id })
+            unique(engagement.findings.map { it.id })
+            unique(engagement.access.map { it.id })
+            val assets = engagement.assets.associateBy { it.id }
+            val runs = engagement.runs.associateBy { it.id }
+            val evidence = engagement.evidence.associateBy { it.id }
+            require(engagement.closedAt == null || engagement.runs.none { it.status == AssessmentRunStatus.RUNNING }) {
+                "A closed engagement cannot contain running observations."
+            }
+            engagement.assets.forEach {
+                text(it.label, 100, "Target label must be 1–100 characters.")
+                text(it.identifier, 512, "Target identifier must be 1–512 characters.")
+            }
+            engagement.runs.forEach {
+                require(it.assetId in assets) { "Run has no matching target." }
+                require((it.status == AssessmentRunStatus.RUNNING) == (it.endedAt == null)) {
+                    "Run status and end time disagree."
+                }
+                require(it.endedAt == null || it.endedAt >= it.startedAt) { "Invalid run timestamps." }
+            }
+            engagement.evidence.forEach {
+                require(it.assetId in assets && runs[it.runId]?.assetId == it.assetId) { "Evidence target/run mismatch." }
+                text(it.title, 120, "Evidence title must be 1–120 characters.")
+                val bytes = it.text.toByteArray(Charsets.UTF_8)
+                require(bytes.isNotEmpty() && bytes.size <= MAX_NOTE_BYTES) { "Evidence note must be 1–65536 bytes." }
+                require(sha256(bytes) == it.sha256) { "Evidence digest mismatch." }
+            }
+            engagement.findings.forEach {
+                text(it.title, 120, "Finding title must be 1–120 characters.")
+                text(it.description, 4000, "Finding description must be 1–4000 characters.")
+                require(it.assetId in assets && it.evidenceIds.isNotEmpty() &&
+                    it.evidenceIds.all { id -> evidence[id]?.assetId == it.assetId }) { "Finding needs evidence from its target." }
+            }
+            engagement.access.forEach {
+                text(it.service, 512, "Access service must be 1–512 characters.")
+                require(it.demonstratedOperations.isNotEmpty() && it.demonstratedOperations.size <= 100) {
+                    "An access result must describe demonstrated operations."
+                }
+                it.demonstratedOperations.forEach { operation -> text(operation, 512, "Invalid access operation description.") }
+                require(it.assetId in assets && runs[it.runId]?.assetId == it.assetId &&
+                    it.evidenceIds.isNotEmpty() && it.evidenceIds.all { id ->
+                        evidence[id]?.let { e -> e.assetId == it.assetId && e.runId == it.runId } == true
+                    }) { "Access result needs evidence from its run and target." }
+            }
+        }
+    }
+
+    private fun unique(ids: List<String>) {
+        require(ids.all { it.isNotBlank() } && ids.toSet().size == ids.size) { "Invalid or duplicate record identifiers." }
+    }
+}
+
+@Serializable
+data class AssessmentReport(
+    val format: String = "fieldwatch-assessment-report",
+    val formatVersion: Int = 1,
+    val exportedAt: Long,
+    val appVersion: String,
+    val disclosure: String,
+    val engagement: AssessmentEngagement? = null,
+    val summary: AssessmentSummary? = null,
+)
+
+/** A structural summary intentionally excludes all operator-supplied strings and hashes. */
+@Serializable
+data class AssessmentSummary(
+    val assetCount: Int,
+    val runStatuses: Map<AssessmentRunStatus, Int>,
+    val evidenceCount: Int,
+    val findingSeverities: Map<FindingSeverity, Int>,
+    val findingConfidences: Map<FindingConfidence, Int>,
+    val accessResultCount: Int,
+)
+
+object AssessmentReports {
+    private val json = Json { prettyPrint = true; encodeDefaults = true }
+
+    fun export(engagement: AssessmentEngagement, full: Boolean, now: Long, appVersion: String): String {
+        AssessmentRules.validate(AssessmentArchive(engagements = listOf(engagement)))
+        return json.encodeToString(AssessmentReport(
+            exportedAt = now,
+            appVersion = appVersion,
+            disclosure = if (full) "Full report: contains scope, identifiers, notes and evidence. Export is unencrypted."
+                else "Summary only: identifiers, scope, free text, evidence content and hashes are omitted.",
+            engagement = engagement.takeIf { full },
+            summary = if (full) null else AssessmentSummary(
+                assetCount = engagement.assets.size,
+                runStatuses = engagement.runs.groupingBy { it.status }.eachCount(),
+                evidenceCount = engagement.evidence.size,
+                findingSeverities = engagement.findings.groupingBy { it.severity }.eachCount(),
+                findingConfidences = engagement.findings.groupingBy { it.confidence }.eachCount(),
+                accessResultCount = engagement.access.size,
+            ),
+        ))
+    }
+}

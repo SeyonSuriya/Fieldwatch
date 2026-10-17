@@ -77,6 +77,16 @@ android {
                 "proguard-rules.pro",
             )
         }
+        create("development") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".dev"
+            versionNameSuffix = "-dev"
+            isDebuggable = true
+            isMinifyEnabled = false
+            isShrinkResources = false
+            matchingFallbacks += listOf("debug")
+            resValue("string", "app_name", "Fieldwatch Dev")
+        }
     }
 
     compileOptions {

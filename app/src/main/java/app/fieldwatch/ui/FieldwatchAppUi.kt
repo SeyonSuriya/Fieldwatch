@@ -129,6 +129,8 @@ import app.fieldwatch.ui.screen.CandidatesScreen
 import app.fieldwatch.ui.screen.RadioBookmarksScreen
 import app.fieldwatch.ui.screen.ReportsScreen
 import app.fieldwatch.ui.screen.ScanStatusScreen
+import app.fieldwatch.ui.screen.AssessmentsScreen
+import app.fieldwatch.ui.screen.InventoryScreen
 import app.fieldwatch.ui.screen.SettingsScreen
 import app.fieldwatch.ui.theme.FieldwatchTheme
 import app.fieldwatch.ui.theme.LocalNightMode
@@ -390,7 +392,7 @@ private fun FieldwatchShell(state: FieldwatchUi, vm: FieldwatchViewModel) {
                     expandedHeight = 52.dp,
                     title = {
                         val screenW = LocalConfiguration.current.screenWidthDp.dp
-                        val actionW = if (route == "live") 56.dp else 16.dp
+                        val actionW = if (route == "live") 104.dp else 56.dp
                         Column(
                             modifier = Modifier
                                 .widthIn(max = (screenW - 20.dp - actionW).coerceAtLeast(120.dp))
@@ -485,6 +487,11 @@ private fun FieldwatchShell(state: FieldwatchUi, vm: FieldwatchViewModel) {
                         }
                     },
                     actions = {
+                        if (route != "assessments") {
+                            IconButton(onClick = { nav.navigate("assessments") { launchSingleTop = true } }) {
+                                Icon(Icons.Outlined.Description, contentDescription = "Open assessments")
+                            }
+                        }
                         if (route == "live") {
                             IconButton(
                                 onClick = {
@@ -721,6 +728,12 @@ private fun FieldwatchShell(state: FieldwatchUi, vm: FieldwatchViewModel) {
             }
             composable("scan-status") {
                 ScanStatusScreen(state = state, onBack = { nav.popBackStack() })
+            }
+            composable("assessments") {
+                AssessmentsScreen(onBack = { nav.popBackStack() }, onInventory = { nav.navigate("assessment-inventory") { launchSingleTop = true } })
+            }
+            composable("assessment-inventory") {
+                InventoryScreen(onBack = { nav.popBackStack() })
             }
             composable("radio-bookmarks") {
                 RadioBookmarksScreen(

@@ -67,9 +67,19 @@ jobs:
       - name: Assemble debug APK
         run: ./gradlew assembleDebug --stacktrace
 
+      - name: Test and assemble isolated development APK
+        run: ./gradlew testDevelopmentUnitTest assembleDevelopment --stacktrace
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: fieldwatch-debug-apk
           path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      - name: Upload development APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: fieldwatch-development-apk
+          path: app/build/outputs/apk/development/app-development.apk
           if-no-files-found: error

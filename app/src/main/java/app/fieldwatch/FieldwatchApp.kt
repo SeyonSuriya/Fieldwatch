@@ -10,6 +10,10 @@ import androidx.core.content.ContextCompat
 import app.fieldwatch.alert.Alerter
 import app.fieldwatch.radio.GnssMonitor
 import app.fieldwatch.data.ConfigStore
+import app.fieldwatch.data.AssessmentStore
+import app.fieldwatch.data.AesGcmAssessmentCipher
+import app.fieldwatch.data.AssessmentKey
+import java.io.File
 import app.fieldwatch.data.DeviceStore
 import app.fieldwatch.data.GnssProfileStore
 import app.fieldwatch.data.LogStore
@@ -37,6 +41,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 
 class FieldwatchApp : Application() {
+    val assessments: AssessmentStore by lazy {
+        AssessmentStore(File(noBackupFilesDir, "assessments/vault.bin"),
+            AesGcmAssessmentCipher { AssessmentKey.get() }, BuildConfig.VERSION_NAME)
+    }
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     lateinit var config: ConfigStore
         private set
