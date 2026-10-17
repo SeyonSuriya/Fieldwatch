@@ -43,7 +43,9 @@ M3 software slice: scoped BLE connections and GATT inventory; characteristic/des
 
 M4a software slice: explicitly confirmed connected-Wi-Fi IPv4 scopes; bounded TCP connection observations; network-bound sockets, lifecycle cancellation and encrypted per-target evidence; Wi-Fi security advertisement analysis preserving raw flags and timestamps. The development APK builds and all 627 tests pass. See [network-assessment.md](network-assessment.md). Physical verification remains with the user and is not represented as complete.
 
-Next implementation step: M4b service fingerprinting, explicit HTTP/TLS inspection and dedicated Wi-Fi security evidence snapshots. M4 is not yet complete; vulnerability checks remain M5.
+M4b software slice: explicit single-endpoint banner/HTTP HEAD/TLS/HTTPS HEAD inspection; bounded response captures and conservative protocol labels; numeric-IP TLS endpoint verification with no insecure fallback; frozen Wi-Fi security snapshots; encrypted per-asset evidence for both report types. The development APK builds and all 645 tests across 51 suites pass. See [network-assessment.md](network-assessment.md) for protocol, deadline, certificate and handset limits. M4 software implementation is complete for the documented connected-Wi-Fi IPv4/TCP scope; physical verification remains pending.
+
+Next implementation milestone: M5 versioned vulnerability checks with evidence and explicit confidence. Start with observable configuration/service checks and reproducible fixtures; a banner or certificate failure alone must not establish a CVE or device-access claim.
 
 ## Required phase completion report
 
@@ -61,6 +63,8 @@ M2 suggested message: `feat: add Classic Bluetooth discovery and unified radio i
 M3 suggested message: `feat: add scoped BLE GATT inspection and Classic RFCOMM tools`.
 
 M4a suggested message: `feat: add scoped Wi-Fi network checks and security observations`.
+
+M4b suggested message: `feat: add scoped service inspection and Wi-Fi security evidence`.
 
 ## Initial check selection method
 

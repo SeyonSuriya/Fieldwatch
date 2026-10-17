@@ -22,6 +22,11 @@ class NetworkAssessmentViewModel(application: Application) : AndroidViewModel(ap
     val report = mutableReport.asStateFlow()
     private val mutableReportEngagement = MutableStateFlow("")
     val reportEngagement = mutableReportEngagement.asStateFlow()
+    private val mutableService = MutableStateFlow<ServiceInspectionReport?>(null)
+    val service = mutableService.asStateFlow()
+    private val mutableServiceEngagement = MutableStateFlow("")
+    val serviceEngagement = mutableServiceEngagement.asStateFlow()
+    private var serviceDestination: String? = null
     private var destination: String? = null
     private var job: Job? = null
     private var client: NetworkConnectClient? = null
@@ -74,6 +79,53 @@ class NetworkAssessmentViewModel(application: Application) : AndroidViewModel(ap
     }
 
     fun stop() { job?.cancel(); client?.close() }
+    fun inspect(engagementId: String, address: String, port: String, probe: ServiceProbe) {
+        if (mutableBusy.value) return
+        job = viewModelScope.launch {
+            mutableBusy.value = true
+            var selected: NetworkConnectClient? = null
+            try {
+                check(android.os.Build.VERSION.SDK_INT >= 33) { "Assessments require Android 13+." }
+                val engagement = archive.value.engagements.singleOrNull { it.id == engagementId && it.closedAt == null }
+                    ?: error("Select an open engagement.")
+                val checkedPort = port.toIntOrNull() ?: error("Enter one numeric port.")
+                ServiceInspection.request(address, checkedPort)
+                selected = NetworkConnectClient(app)
+                client = selected
+                selected.validateTargets(listOf(address))
+                mutableService.value = null
+                serviceDestination = engagementId
+                mutableServiceEngagement.value = engagement.name
+                mutableNotice.value = "Inspecting $address:$checkedPort with $probe (five-second deadline)."
+                mutableService.value = selected.inspect(address, checkedPort, probe)
+                mutableNotice.value = "Inspection finished. Banners and headers are server claims; no vulnerability or access verdict was created."
+            } catch (e: CancellationException) { mutableNotice.value = "Inspection stopped; no completed report was recorded." }
+            catch (e: Exception) { mutableNotice.value = e.message ?: "Inspection failed." }
+            finally { selected?.close(); client = null; mutableBusy.value = false }
+        }
+    }
+    fun saveService() {
+        val frozen = mutableService.value ?: return
+        val destination = serviceDestination ?: return
+        persist {
+            app.assessments.saveServiceReport(destination, frozen, app.config.config.value.version)
+            mutableNotice.value = "Service inspection saved as encrypted evidence."
+        }
+    }
+    fun saveWifi(engagementId: String, frozen: WifiSecurityReport) = persist {
+        app.assessments.saveWifiSecurity(engagementId, frozen, app.config.config.value.version)
+        mutableNotice.value = "Wi-Fi advertisement snapshot saved as encrypted evidence."
+    }
+    private fun persist(action: suspend () -> Unit) {
+        if (mutableBusy.value) return
+        mutableBusy.value = true
+        viewModelScope.launch {
+            try { action() }
+            catch (e: CancellationException) { throw e }
+            catch (e: Exception) { mutableNotice.value = e.message ?: "Save failed." }
+            finally { mutableBusy.value = false }
+        }
+    }
     fun save() {
         if (mutableBusy.value) return
         val frozen = mutableReport.value ?: return

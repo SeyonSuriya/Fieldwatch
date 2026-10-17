@@ -23,6 +23,57 @@ class AssessmentStoreTest {
         startedAt = 10, endedAt = 20, cancelled = false, observations = listOf(
             TcpObservation("192.168.1.1", 80, "open", 15), TcpObservation("192.168.1.2", 80, "timeout", 16)))
 
+    private fun serviceReport() = ServiceInspectionReport(address = "192.168.1.1", port = 80, probe = ServiceProbe.HTTP_HEAD,
+        network = "Wi-Fi lab", startedAt = 10, endedAt = 20, outcome = "observed",
+        receivedHex = ServiceInspection.hex("HTTP/1.1 200 OK\r\nServer: private-lab-name\r\n\r\n".toByteArray()))
+    private fun wifiReport() = WifiSecurityReport(bssid = "AA:BB:CC:DD:EE:01", ssid = "Private lab", channel = 6, frequencyMhz = 2437,
+        firstSeen = 10, lastSeen = 20, capturedAt = 30, capabilities = "[ESS]", parsedSecurity = null, analysis = WifiSecurityAnalysis.describe("[ESS]"))
+
+    @Test fun serviceAndWifiSnapshotsRemainEncryptedAndReuseMatchingAssets() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Authorized lab")
+        store.saveServiceReport(engagement, serviceReport(), 94)
+        store.saveServiceReport(engagement, serviceReport().copy(outcome = "timeout"), 94)
+        store.saveWifiSecurity(engagement, wifiReport(), 94)
+        val saved = store.archive.value.engagements.single()
+        assertEquals(2, saved.assets.size)
+        assertEquals(3, saved.runs.size)
+        assertEquals(setOf("service-inspection", "wifi-security-advertisement"), saved.evidence.map { it.source }.toSet())
+        assertTrue(saved.findings.isEmpty()); assertTrue(saved.access.isEmpty())
+        saved.evidence.forEach { assertEquals(AssessmentRules.sha256(it.text.toByteArray()), it.sha256) }
+        assertFalse(file.readBytes().toString(Charsets.ISO_8859_1).contains("Private lab"))
+        val reopened = store(file)
+        reopened.load()
+        assertEquals(store.archive.value, reopened.archive.value)
+    }
+
+    @Test fun invalidStructuredSnapshotsLeaveVaultUnchanged() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Authorized lab")
+        val before = file.readBytes()
+        try { store.saveServiceReport(engagement, serviceReport().copy(port = 0), 94); fail("Expected invalid endpoint rejection") }
+        catch (_: IllegalArgumentException) { }
+        try { store.saveWifiSecurity(engagement, wifiReport().copy(analysis = "invented"), 94); fail("Expected invalid analysis rejection") }
+        catch (_: IllegalArgumentException) { }
+        assertArrayEquals(before, file.readBytes())
+    }
+
+    @Test fun closedEngagementRejectsBothNewSnapshotTypes() = runBlocking {
+        val store = store(File(temp.newFolder(), "vault.bin"))
+        store.load()
+        val engagement = store.create("Lab", "Authorized lab")
+        store.close(engagement)
+        try { store.saveServiceReport(engagement, serviceReport(), 94); fail("Expected closed engagement rejection") }
+        catch (_: IllegalArgumentException) { }
+        try { store.saveWifiSecurity(engagement, wifiReport(), 94); fail("Expected closed engagement rejection") }
+        catch (_: IllegalArgumentException) { }
+        assertTrue(store.archive.value.engagements.single().assets.isEmpty())
+    }
+
     @Test fun networkEvidenceIsEncryptedGroupedByTargetAndHasNoAccessVerdict() = runBlocking {
         val file = File(temp.newFolder(), "vault.bin")
         val store = store(file)

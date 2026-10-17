@@ -167,6 +167,35 @@ class AssessmentStore(
         }
     }
 
+    suspend fun saveServiceReport(engagementId: String, report: ServiceInspectionReport, catalogVersion: Int) {
+        report.validate()
+        saveStructuredSnapshot(engagementId, report.address, report.address, AssessmentTransport.NETWORK,
+            "service-inspection", json.encodeToString(report), report.startedAt, report.endedAt, catalogVersion)
+    }
+
+    suspend fun saveWifiSecurity(engagementId: String, report: WifiSecurityReport, catalogVersion: Int) {
+        report.validate()
+        saveStructuredSnapshot(engagementId, report.bssid.uppercase(), report.ssid.ifBlank { report.bssid }.take(100), AssessmentTransport.WIFI,
+            "wifi-security-advertisement", json.encodeToString(report), report.capturedAt, report.capturedAt, catalogVersion)
+    }
+
+    private suspend fun saveStructuredSnapshot(engagementId: String, identifier: String, label: String, transport: AssessmentTransport,
+        source: String, body: String, startedAt: Long, endedAt: Long, catalogVersion: Int) {
+        require(body.toByteArray(Charsets.UTF_8).size <= AssessmentRules.MAX_NOTE_BYTES) { "Evidence exceeds 64 KiB." }
+        edit(engagementId) { engagement ->
+            val capturedAt = now()
+            val asset = engagement.assets.firstOrNull { it.transport == transport && it.identifier.equals(identifier, true) }
+                ?: AssessmentAsset(id(), label, identifier, transport, capturedAt)
+            val run = AssessmentRun(id(), asset.id, startedAt, checkId = source,
+                status = AssessmentRunStatus.RECORDED, endedAt = endedAt)
+            val evidence = AssessmentEvidence(id(), asset.id, run.id, source, body,
+                AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), capturedAt, source = source,
+                appVersion = appVersion, catalogVersion = catalogVersion)
+            engagement.copy(assets = if (engagement.assets.any { it.id == asset.id }) engagement.assets else engagement.assets + asset,
+                runs = engagement.runs + run, evidence = engagement.evidence + evidence)
+        }
+    }
+
     suspend fun finishObservation(engagementId: String, runId: String, cancelled: Boolean = false) {
         edit(engagementId) { engagement ->
             val run = engagement.runs.singleOrNull { it.id == runId } ?: error("Observation not found.")

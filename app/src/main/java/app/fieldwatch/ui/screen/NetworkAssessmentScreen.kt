@@ -34,11 +34,19 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
     val notice by vm.notice.collectAsStateWithLifecycle()
     val report by vm.report.collectAsStateWithLifecycle()
     val reportEngagement by vm.reportEngagement.collectAsStateWithLifecycle()
+    val service by vm.service.collectAsStateWithLifecycle()
+    val serviceEngagement by vm.serviceEngagement.collectAsStateWithLifecycle()
     val wifi by vm.wifi.collectAsStateWithLifecycle()
     var engagement by remember { mutableStateOf<String?>(null) }
     var scope by remember { mutableStateOf("") }
     var ports by remember { mutableStateOf("80,443,22,8080") }
     var confirm by remember { mutableStateOf(false) }
+    var serviceAddress by remember { mutableStateOf("") }
+    var servicePort by remember { mutableStateOf("80") }
+    var probe by remember { mutableStateOf(ServiceProbe.BANNER) }
+    var pendingInspection by remember { mutableStateOf<PendingInspection?>(null) }
+    var pendingWifi by remember { mutableStateOf<Pair<String, WifiSecurityReport>?>(null) }
+    var validationMessage by remember { mutableStateOf<String?>(null) }
     Scaffold(topBar = { NestedTopBar("Network assessment", navigationIcon = { TextButton(onClick = onBack) { Text("Back") } }) }) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
@@ -64,16 +72,55 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
                     }
                 }
             }
-            items(report?.observations.orEmpty()) { row -> Text("${row.address}:${row.port} · ${row.outcome}") }
+            items(report?.observations.orEmpty()) { row ->
+                Column {
+                    Text("${row.address}:${row.port} · ${row.outcome}")
+                    if (row.outcome == "open") TextButton(onClick = { serviceAddress = row.address; servicePort = row.port.toString() }, enabled = !busy) { Text("Select for inspection") }
+                }
+            }
+            if (Build.VERSION.SDK_INT >= 33) item { SectionCard("Inspect one service") {
+                Text("Uses the selected open engagement above. Choose the protocol explicitly; port numbers do not identify services. Banner mode sends no application payload. HTTP sends HEAD /; redirects, bodies, credentials and cookies are not requested or followed.")
+                Text("TLS requires a trusted certificate valid for the numeric IP address. Self-signed or hostname-only certificates may fail; no insecure retry is made. Capture limit: 4 KiB; deadline: five seconds.")
+                OutlinedTextField(serviceAddress, { serviceAddress = it }, label = { Text("Numeric IPv4 target") }, enabled = !busy, singleLine = true)
+                OutlinedTextField(servicePort, { servicePort = it }, label = { Text("TCP port") }, enabled = !busy, singleLine = true)
+                ServiceProbe.entries.forEach { mode -> OutlinedButton(onClick = { probe = mode }, enabled = !busy) {
+                    Text((if (probe == mode) "Selected: " else "") + when (mode) {
+                        ServiceProbe.BANNER -> "Read banner"
+                        ServiceProbe.HTTP_HEAD -> "HTTP HEAD /"
+                        ServiceProbe.TLS -> "TLS handshake"
+                        ServiceProbe.HTTPS_HEAD -> "HTTPS HEAD /"
+                    })
+                } }
+                Button(onClick = { engagement?.let { pendingInspection = PendingInspection(it, serviceAddress.trim(), servicePort.trim(), probe) } }, enabled = !busy && engagement != null) { Text("Review inspection") }
+                service?.let { result ->
+                    Text("${result.address}:${result.port} · ${result.probe} · ${result.outcome} · ${Date(result.startedAt)}")
+                    Text("Evidence destination: $serviceEngagement (fixed when inspection started)")
+                    Text(ServiceInspection.identify(result.receivedHex))
+                    if (result.attemptedRequestHex.isNotEmpty()) Text("Request attempted:\n${ServiceInspection.display(result.attemptedRequestHex)}")
+                    if (result.tlsProtocol != null) Text("Verified TLS session: ${result.tlsProtocol} · ${result.tlsCipher}\nLeaf certificate SHA-256: ${result.certificateSha256}")
+                    if (result.captureLimitReached) Text("Capture limit reached; additional bytes may exist.")
+                    if (result.receivedHex.isNotEmpty()) {
+                        Text("Response preview (control bytes replaced):\n${ServiceInspection.display(result.receivedHex)}")
+                        Text("Authoritative bytes (hex): ${result.receivedHex}", style = MaterialTheme.typography.bodySmall)
+                    }
+                    Button(onClick = vm::saveService, enabled = !busy) { Text("Save inspection evidence") }
+                }
+            } }
             item { SectionCard("Wi-Fi security inventory") {
                 Text("Existing scan observations; no new scan is started here. Advertisement flags may be incomplete or retained from an earlier sighting. Configuration concerns do not confirm a vulnerability.")
-                Text("Showing ${wifi.size} Wi-Fi records (up to 100). Save radio metadata through the radio inventory; security analysis evidence export follows in the next M4 step.")
+                Text("Showing ${wifi.size} Wi-Fi records (up to 100). Save a frozen security snapshot to the selected engagement. Raw flags and observation times are retained; full JSON export includes them.")
+                validationMessage?.let { Text(it) }
             } }
             items(wifi, key = { it.key }) { row -> SectionCard(row.name.ifBlank { "Hidden SSID" }) {
                 Text("${row.mac} · channel ${row.channel} · last seen ${Date(row.lastSeen)}")
                 Text(WifiSecurityAnalysis.describe(row.facts.capabilities))
                 Text("Capabilities: ${row.facts.capabilities ?: "unavailable"}")
                 Text("Parsed security: ${row.facts.security ?: "unavailable"}")
+                OutlinedButton(onClick = {
+                    runCatching { WifiSecurityReport.from(row, System.currentTimeMillis()) }
+                        .onSuccess { snapshot -> engagement?.let { pendingWifi = it to snapshot }; validationMessage = null }
+                        .onFailure { validationMessage = "This Wi-Fi record cannot be saved: ${it.message}" }
+                }, enabled = !busy && engagement != null && Build.VERSION.SDK_INT >= 33) { Text("Review security snapshot") }
             } }
         }
     }
@@ -81,4 +128,18 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
         text = { Text("Engagement: ${archive.engagements.firstOrNull { it.id == engagement }?.name}\nScope: $scope\nTCP ports: $ports\n\nI am authorized to connect to every target in this scope. TCP handshakes may affect or be logged by devices.") },
         confirmButton = { TextButton(onClick = { confirm = false; engagement?.let { vm.start(it, scope, ports) } }) { Text("Start checks") } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } })
+    pendingInspection?.let { pending ->
+        AlertDialog(onDismissRequest = { pendingInspection = null }, title = { Text("Confirm service inspection") },
+            text = { Text("Engagement: ${archive.engagements.firstOrNull { it.id == pending.engagement }?.name}\nTarget: ${pending.address}:${pending.port}\nMode: ${pending.probe}\n\nI am authorized to inspect this target. HTTP modes send HEAD /; TLS modes perform a verified handshake. Requests may be logged or affect the service.") },
+            confirmButton = { TextButton(onClick = { pendingInspection = null; vm.inspect(pending.engagement, pending.address, pending.port, pending.probe) }) { Text("Inspect") } },
+            dismissButton = { TextButton(onClick = { pendingInspection = null }) { Text("Cancel") } })
+    }
+    pendingWifi?.let { (destination, snapshot) ->
+        AlertDialog(onDismissRequest = { pendingWifi = null }, title = { Text("Save Wi-Fi security evidence") },
+            text = { Text("Engagement: ${archive.engagements.firstOrNull { it.id == destination }?.name}\nBSSID: ${snapshot.bssid}\nSSID: ${snapshot.ssid}\nLast observed: ${Date(snapshot.lastSeen)}\n\n${snapshot.analysis}\n\nThis target is within the engagement's authorized scope. This saves the frozen advertisement; no active test is performed.") },
+            confirmButton = { TextButton(onClick = { pendingWifi = null; vm.saveWifi(destination, snapshot) }) { Text("Save encrypted snapshot") } },
+            dismissButton = { TextButton(onClick = { pendingWifi = null }) { Text("Cancel") } })
+    }
 }
+
+private data class PendingInspection(val engagement: String, val address: String, val port: String, val probe: ServiceProbe)

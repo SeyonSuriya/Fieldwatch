@@ -6,6 +6,13 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import app.fieldwatch.domain.NetworkScope
 import app.fieldwatch.domain.TcpObservation
+import app.fieldwatch.domain.ServiceProbe
+import app.fieldwatch.domain.ServiceInspection
+import app.fieldwatch.domain.ServiceInspectionReport
+import app.fieldwatch.data.ServiceInspector
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
@@ -59,6 +66,30 @@ class NetworkConnectClient(context: Context) {
         finally { synchronized(sockets) { sockets.remove(socket) }; runCatching { socket.close() } }
         currentCoroutineContext().ensureActive()
         TcpObservation(address, port, outcome, System.currentTimeMillis())
+    }
+
+    suspend fun inspect(address: String, port: Int, probe: ServiceProbe): ServiceInspectionReport = coroutineScope {
+        ServiceInspection.request(address, port)
+        validateTargets(listOf(address))
+        val socket = synchronized(sockets) {
+            check(!closed) { "Network run stopped." }
+            network.socketFactory.createSocket().also { sockets.add(it) }
+        }
+        val expired = java.util.concurrent.atomic.AtomicBoolean(false)
+        val deadline = launch {
+            delay(ServiceInspection.DEADLINE_MS)
+            expired.set(true)
+            runCatching { socket.close() }
+        }
+        try {
+            val report = withContext(Dispatchers.IO) { ServiceInspector.inspect(socket, address, port, probe, description) }
+            currentCoroutineContext().ensureActive()
+            if (expired.get()) report.copy(outcome = "timeout") else report
+        } finally {
+            deadline.cancel()
+            synchronized(sockets) { sockets.remove(socket) }
+            runCatching { socket.close() }
+        }
     }
 
     fun close() = synchronized(sockets) {
