@@ -142,6 +142,31 @@ class AssessmentStore(
         }
     }
 
+    suspend fun saveNetworkReport(engagementId: String, report: app.fieldwatch.domain.NetworkEvidenceReport, catalogVersion: Int) {
+        report.validate()
+        // Each endpoint is retained once; evidence is grouped by host for accurate asset attribution.
+        edit(engagementId) { engagement ->
+            var next = engagement
+            report.observations.groupBy { it.address }.forEach { (address, observations) ->
+                val capturedAt = now()
+                val asset = next.assets.firstOrNull { it.transport == AssessmentTransport.NETWORK && it.identifier == address }
+                    ?: AssessmentAsset(id(), address, address, AssessmentTransport.NETWORK, capturedAt)
+                val run = AssessmentRun(id(), asset.id, report.startedAt, checkId = "network-tcp-connect",
+                    status = if (report.cancelled) AssessmentRunStatus.CANCELLED else AssessmentRunStatus.RECORDED,
+                    endedAt = report.endedAt)
+                val body = json.encodeToString(report.copy(observations = observations))
+                require(body.toByteArray(Charsets.UTF_8).size <= AssessmentRules.MAX_NOTE_BYTES)
+                val evidence = AssessmentEvidence(id(), asset.id, run.id, "TCP connection observations", body,
+                    AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), capturedAt,
+                    source = "network-tcp-connect", appVersion = appVersion, catalogVersion = catalogVersion)
+                next = next.copy(assets = if (next.assets.any { it.id == asset.id }) next.assets else next.assets + asset,
+                    runs = next.runs + run, evidence = next.evidence + evidence)
+            }
+            require(report.observations.isNotEmpty()) { "No completed observations to save." }
+            next
+        }
+    }
+
     suspend fun finishObservation(engagementId: String, runId: String, cancelled: Boolean = false) {
         edit(engagementId) { engagement ->
             val run = engagement.runs.singleOrNull { it.id == runId } ?: error("Observation not found.")

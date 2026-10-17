@@ -19,6 +19,56 @@ class AssessmentStoreTest {
     private fun store(file: File, cipher: AssessmentCipher = AesGcmAssessmentCipher { key }) =
         AssessmentStore(file, cipher, "test-version") { time }
 
+    private fun networkReport() = NetworkEvidenceReport(scope = "192.168.1.0/30", ports = listOf(80), network = "Wi-Fi lab",
+        startedAt = 10, endedAt = 20, cancelled = false, observations = listOf(
+            TcpObservation("192.168.1.1", 80, "open", 15), TcpObservation("192.168.1.2", 80, "timeout", 16)))
+
+    @Test fun networkEvidenceIsEncryptedGroupedByTargetAndHasNoAccessVerdict() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Authorized subnet")
+        store.saveNetworkReport(engagement, networkReport(), 94)
+        store.saveNetworkReport(engagement, networkReport().copy(cancelled = true), 94)
+        val saved = store.archive.value.engagements.single()
+        assertEquals(2, saved.assets.size)
+        assertEquals(4, saved.runs.size)
+        assertEquals(2, saved.runs.count { it.status == AssessmentRunStatus.CANCELLED })
+        assertTrue(saved.findings.isEmpty()); assertTrue(saved.access.isEmpty())
+        saved.evidence.forEach { evidence ->
+            val body = kotlinx.serialization.json.Json.decodeFromString<NetworkEvidenceReport>(evidence.text)
+            body.validate()
+            assertEquals(listOf(saved.assets.single { it.id == evidence.assetId }.identifier), body.observations.map { it.address })
+        }
+        assertFalse(file.readBytes().toString(Charsets.ISO_8859_1).contains("192.168.1.1"))
+        val reopened = store(file)
+        reopened.load()
+        assertEquals(store.archive.value, reopened.archive.value)
+    }
+
+    @Test fun invalidNetworkEvidenceCannotMutateTheVault() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Authorized subnet")
+        val before = file.readBytes()
+        try {
+            store.saveNetworkReport(engagement, networkReport().copy(observations = listOf(TcpObservation("10.0.0.1", 80, "open", 15))), 94)
+            fail("Expected out-of-scope rejection")
+        } catch (_: IllegalArgumentException) { }
+        assertArrayEquals(before, file.readBytes())
+    }
+
+    @Test fun closedEngagementRejectsNetworkEvidence() = runBlocking {
+        val store = store(File(temp.newFolder(), "vault.bin"))
+        store.load()
+        val engagement = store.create("Lab", "Authorized subnet")
+        store.close(engagement)
+        try { store.saveNetworkReport(engagement, networkReport(), 94); fail("Expected closed engagement rejection") }
+        catch (_: IllegalArgumentException) { }
+        assertTrue(store.archive.value.engagements.single().assets.isEmpty())
+    }
+
     @Test fun encryptedRecordsSurviveReloadWithoutPlaintextFiles() = runBlocking {
         val file = File(temp.newFolder(), "vault.bin")
         val first = store(file)

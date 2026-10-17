@@ -41,7 +41,9 @@ M2 software slice: single-cycle Bluetooth Classic inquiry; explicitly distinct p
 
 M3 software slice: scoped BLE connections and GATT inventory; characteristic/descriptor reads; confirmed characteristic writes and notifications/indications; MTU limits; explicit cached/SDP UUID discovery; secure/insecure RFCOMM connection choices and hex/UTF-8 serial I/O; bounded transcripts and encrypted protocol-evidence snapshots. All 612 tests pass and the development APK builds. See [bluetooth-tools.md](bluetooth-tools.md) for security semantics, limitations, and handset checks. No device-specific vulnerability or access verdict is fabricated by these service tools.
 
-Next implementation milestone: M4 scoped connected-network discovery/service assessment and Wi-Fi security inventory. Physical verification remains with the user and is not represented as complete.
+M4a software slice: explicitly confirmed connected-Wi-Fi IPv4 scopes; bounded TCP connection observations; network-bound sockets, lifecycle cancellation and encrypted per-target evidence; Wi-Fi security advertisement analysis preserving raw flags and timestamps. The development APK builds and all 627 tests pass. See [network-assessment.md](network-assessment.md). Physical verification remains with the user and is not represented as complete.
+
+Next implementation step: M4b service fingerprinting, explicit HTTP/TLS inspection and dedicated Wi-Fi security evidence snapshots. M4 is not yet complete; vulnerability checks remain M5.
 
 ## Required phase completion report
 
@@ -57,6 +59,8 @@ M1 suggested message: `feat: add isolated development build and encrypted assess
 M2 suggested message: `feat: add Classic Bluetooth discovery and unified radio inventory`.
 
 M3 suggested message: `feat: add scoped BLE GATT inspection and Classic RFCOMM tools`.
+
+M4a suggested message: `feat: add scoped Wi-Fi network checks and security observations`.
 
 ## Initial check selection method
 

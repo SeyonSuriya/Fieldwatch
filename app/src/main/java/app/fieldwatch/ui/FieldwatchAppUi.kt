@@ -733,7 +733,11 @@ private fun FieldwatchShell(state: FieldwatchUi, vm: FieldwatchViewModel) {
                 ScanStatusScreen(state = state, onBack = { nav.popBackStack() })
             }
             composable("assessments") {
-                AssessmentsScreen(onBack = { nav.popBackStack() }, onInventory = { nav.navigate("assessment-inventory") { launchSingleTop = true } })
+                AssessmentsScreen(onBack = { nav.popBackStack() }, onInventory = { nav.navigate("assessment-inventory") { launchSingleTop = true } },
+                    onNetwork = { nav.navigate("network-assessment") { launchSingleTop = true } })
+            }
+            composable("network-assessment") {
+                app.fieldwatch.ui.screen.NetworkAssessmentScreen(onBack = { nav.popBackStack() })
             }
             composable("assessment-inventory") {
                 InventoryScreen(onBack = { nav.popBackStack() }, onOpenTools = { radio ->

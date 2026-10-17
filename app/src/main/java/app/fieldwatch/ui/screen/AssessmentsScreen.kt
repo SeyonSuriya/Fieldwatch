@@ -23,7 +23,7 @@ import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, vm: AssessmentViewModel = viewModel()) {
+fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: () -> Unit, vm: AssessmentViewModel = viewModel()) {
     ProtectAssessmentScreen()
     val archive by vm.archive.collectAsStateWithLifecycle()
     val selectedId by vm.selected.collectAsStateWithLifecycle()
@@ -59,6 +59,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, vm: Assessmen
             }
             CapabilitySummary()
             OutlinedButton(onClick = onInventory, enabled = !busy) { Text("Open radio inventory") }
+            OutlinedButton(onClick = onNetwork, enabled = !busy) { Text("Network and Wi-Fi assessment") }
             if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (!ready) {
                 Text("The assessment vault has not loaded. Existing files will not be replaced if loading fails.")
