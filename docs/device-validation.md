@@ -45,6 +45,8 @@ The canonical identity/build/status/marker manifest is `app/src/test/resources/d
 
 ## App workflow
 
+After collecting both reference modes, the [fixture comparison workflow](fixture-comparison.md) can link and save the pair with both source hashes and module outcomes. It is an offline lab-only comparison, not additional target validation traffic.
+
 1. Create/select an authorized lab engagement in Fieldwatch Dev. Connect the handset to the same Wi-Fi subnet as the fixture.
 2. Open Network and Wi-Fi assessment. Enter the host's numeric IPv4 address and port 8081 in Inspect one service. Select HTTP HEAD /, review the exact target and collect the response. Save inspection evidence.
 3. Repeat for protected port 8082. The app does not pair or compare different targets automatically.

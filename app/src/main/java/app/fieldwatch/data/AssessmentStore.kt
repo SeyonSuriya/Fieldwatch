@@ -252,6 +252,31 @@ class AssessmentStore(
         return recorded
     }
 
+    suspend fun saveFixtureComparison(engagementId: String, exposedId: String, protectedId: String, catalogVersion: Int): Boolean {
+        var recorded = false
+        edit(engagementId) { engagement ->
+            val report = FixtureComparison.compare(engagement, exposedId, protectedId, now())
+            val existing = engagement.evidence.filter { it.source == "reference-fixture-comparison" }.any {
+                val old = json.decodeFromString<FixtureComparisonReport>(it.text)
+                old.formatVersion == FixtureComparison.VERSION && old.exposed.sourceEvidenceId == exposedId && old.protectedControl.sourceEvidenceId == protectedId &&
+                    old.exposed.moduleId == report.exposed.moduleId && old.protectedControl.moduleId == report.protectedControl.moduleId &&
+                    old.exposed.sourceSha256 == report.exposed.sourceSha256 && old.protectedControl.sourceSha256 == report.protectedControl.sourceSha256 &&
+                    old.exposed.moduleVersion == report.exposed.moduleVersion && old.protectedControl.moduleVersion == report.protectedControl.moduleVersion &&
+                    old.exposed.fixtureRevision == report.exposed.fixtureRevision && old.protectedControl.fixtureRevision == report.protectedControl.fixtureRevision
+            }
+            if (existing) return@edit engagement
+            val run = AssessmentRun(id(), report.exposed.assetId, report.comparedAt, checkId = "reference-fixture-comparison",
+                checkVersion = FixtureComparison.VERSION, status = AssessmentRunStatus.RECORDED, endedAt = report.comparedAt)
+            val body = json.encodeToString(report)
+            val evidence = AssessmentEvidence(id(), report.exposed.assetId, run.id, "Reference fixture comparison (LAB ONLY)", body,
+                AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), report.comparedAt, source = "reference-fixture-comparison",
+                appVersion = appVersion, catalogVersion = catalogVersion)
+            recorded = true
+            engagement.copy(runs = engagement.runs + run, evidence = engagement.evidence + evidence)
+        }
+        return recorded
+    }
+
     suspend fun saveOperatorBaseline(engagementId: String, baseline: HandsetBaseline) {
         val frozen = baseline.copy(hardwareReported = baseline.hardwareReported.toMap(), permissions = baseline.permissions.toMap())
         frozen.validate()

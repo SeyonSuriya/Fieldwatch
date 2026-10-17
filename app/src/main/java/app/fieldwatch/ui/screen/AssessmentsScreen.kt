@@ -88,6 +88,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                         Text("${selected.assets.size} targets · ${selected.runs.size} observations · ${selected.evidence.size} evidence notes · ${selected.findings.size} findings")
                         Text(if (selected.closedAt == null) "Open" else "Closed · read-only")
                         OutlinedButton(onClick = { dialog = "asset" }, enabled = editable) { Text("Add target") }
+                        OutlinedButton(onClick = { dialog = "fixture-comparison" }, enabled = editable) { Text("Compare reference lab fixtures") }
                         OutlinedButton(onClick = {
                             runCatching { app.fieldwatch.data.HandsetBaselineCollector.capture(context) }
                                 .onSuccess { operatorPreview = it }.onFailure { checkError = "Handset baseline unavailable: ${it.message}" }
@@ -123,7 +124,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                             selected.evidence.filter { it.assetId == asset.id }.forEach { evidence ->
                                 HorizontalDivider()
                                 Text(evidence.title, style = MaterialTheme.typography.titleSmall)
-                                Text(evidence.text)
+                                if (evidence.source == "reference-fixture-comparison") SavedFixtureComparison(evidence) else Text(evidence.text)
                                 Text("Source: ${evidence.source} · catalog ${evidence.catalogVersion}\nSHA-256: ${evidence.sha256}", style = MaterialTheme.typography.bodySmall)
                                 if (AssessmentChecks.supports(evidence.source)) OutlinedButton(onClick = {
                                     runCatching { AssessmentChecks.evaluate(selected, evidence.id, System.currentTimeMillis()) }
@@ -191,6 +192,9 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
         confirmButton = { TextButton(onClick = { vm.validateDeviceEvidence(preview.sourceEvidenceId); devicePreview = null }, enabled = !busy) { Text("Save lab validation") } },
         dismissButton = { TextButton(onClick = { devicePreview = null }) { Text("Cancel") } }) }
     when (dialog) {
+        "fixture-comparison" -> selected?.let { engagement -> FixtureComparisonDialog(engagement, onDismiss = { dialog = null }) { exposedId, protectedId ->
+            vm.saveFixtureComparison(exposedId, protectedId); dialog = null
+        } }
         "create" -> TextEntryDialog("New engagement", "Name", "Authorized targets, boundaries and assessment notes", 100, 4000,
             onDismiss = { dialog = null }) { name, scope -> vm.create(name, scope); dialog = null }
         "asset" -> AssetDialog(onDismiss = { dialog = null }) { label, identifier, transport ->
@@ -209,6 +213,70 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
         "delete" -> ConfirmAssessmentDialog("Delete engagement?", "Permanently removes this record and its evidence from the app. Export a full report first if you need a copy. Existing exported copies are not deleted.",
             "Delete", { dialog = null }) { vm.delete(); dialog = null }
     }
+}
+
+@Composable
+private fun SavedFixtureComparison(evidence: AssessmentEvidence) {
+    val report = remember(evidence.id, evidence.sha256) { runCatching { kotlinx.serialization.json.Json.decodeFromString<FixtureComparisonReport>(evidence.text) }.getOrNull() }
+    var showRaw by remember(evidence.id) { mutableStateOf(false) }
+    if (report == null) {
+        Text("Comparison could not be decoded. Original evidence is retained.")
+        Text(evidence.text)
+    } else {
+        Text("LAB ONLY · ${report.outcome}", style = MaterialTheme.typography.titleSmall)
+        Text("Exposed ${report.exposedEndpoint}: ${report.exposed.outcome}\nControl ${report.protectedEndpoint}: ${report.protectedControl.outcome}")
+        Text(report.explanation)
+        Text("Exposed source: ${report.exposed.sourceEvidenceId}\nControl source: ${report.protectedControl.sourceEvidenceId}", style = MaterialTheme.typography.bodySmall)
+        TextButton(onClick = { showRaw = !showRaw }) { Text(if (showRaw) "Hide raw comparison" else "Show raw comparison and hashes") }
+        if (showRaw) Text(evidence.text)
+    }
+}
+
+@Composable
+private fun FixtureComparisonDialog(engagement: AssessmentEngagement, onDismiss: () -> Unit, onSave: (String, String) -> Unit) {
+    val candidates = remember(engagement) { engagement.evidence.filter { it.source == "service-inspection" }.asReversed().take(100) }
+    var exposedId by remember(engagement.id) { mutableStateOf<String?>(null) }
+    var protectedId by remember(engagement.id) { mutableStateOf<String?>(null) }
+    var exposedMenu by remember { mutableStateOf(false) }
+    var protectedMenu by remember { mutableStateOf(false) }
+    var preview by remember { mutableStateOf<FixtureComparisonReport?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    fun label(id: String?): String {
+        val evidence = candidates.firstOrNull { it.id == id } ?: return "Choose saved observation"
+        val endpoint = runCatching { kotlinx.serialization.json.Json.decodeFromString<ServiceInspectionReport>(evidence.text).let { "${it.address}:${it.port}" } }.getOrDefault("Unreadable response")
+        return "$endpoint · ${DateFormat.getDateTimeInstance().format(Date(evidence.capturedAt))} · ${evidence.id.take(8)}"
+    }
+    AlertDialog(onDismissRequest = onDismiss, title = { Text("Reference fixture pair · LAB ONLY") }, text = {
+        Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("Select the exposed fixture capture and protected control explicitly. Reviews saved evidence only; no target traffic is sent. Showing the newest ${candidates.size} service observations (maximum 100).")
+            Text("Expected: exposed 1.0-exposed returns the synthetic marker; protected 1.1-protected blocks HEAD /. Use distinct endpoints on the same recorded Wi-Fi network and collect within 15 minutes.")
+            Text("Exposed fixture")
+            Box { OutlinedButton(onClick = { exposedMenu = true }) { Text(label(exposedId)) }
+                DropdownMenu(expanded = exposedMenu, onDismissRequest = { exposedMenu = false }) {
+                    candidates.forEach { evidence -> DropdownMenuItem(text = { Text(label(evidence.id)) }, onClick = { exposedId = evidence.id; exposedMenu = false; preview = null; error = null }) }
+                }
+            }
+            Text("Protected control")
+            Box { OutlinedButton(onClick = { protectedMenu = true }) { Text(label(protectedId)) }
+                DropdownMenu(expanded = protectedMenu, onDismissRequest = { protectedMenu = false }) {
+                    candidates.forEach { evidence -> DropdownMenuItem(text = { Text(label(evidence.id)) }, onClick = { protectedId = evidence.id; protectedMenu = false; preview = null; error = null }) }
+                }
+            }
+            OutlinedButton(onClick = {
+                runCatching { FixtureComparison.compare(engagement, exposedId!!, protectedId!!, System.currentTimeMillis()) }
+                    .onSuccess { preview = it; error = null }.onFailure { error = it.message ?: "Comparison unavailable."; preview = null }
+            }, enabled = exposedId != null && protectedId != null && exposedId != protectedId) { Text("Review comparison") }
+            error?.let { Text(it) }
+            preview?.let { report ->
+                Text(report.outcome.name, style = MaterialTheme.typography.titleSmall)
+                Text("Exposed ${report.exposedEndpoint}: ${report.exposed.outcome}\nControl ${report.protectedEndpoint}: ${report.protectedControl.outcome}")
+                Text(report.explanation)
+                Text("Module ${report.exposed.moduleId} v${report.exposed.moduleVersion} · fixture revision ${report.exposed.fixtureRevision}")
+                Text("Saving records both original evidence IDs/hashes and outcomes under the exposed fixture's asset. It creates no finding or access record and does not certify a physical device.")
+            }
+        }
+    }, confirmButton = { TextButton(onClick = { preview?.let { onSave(it.exposed.sourceEvidenceId, it.protectedControl.sourceEvidenceId) } }, enabled = preview != null) { Text("Save encrypted comparison") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } })
 }
 
 @Composable

@@ -80,6 +80,12 @@ class AssessmentViewModel(application: Application) : AndroidViewModel(applicati
         mutableNotice.value = "This phone's operator baseline was saved encrypted. It is not a remote-target profile or a verified capability/vulnerability result."
     }
 
+    fun saveFixtureComparison(exposedId: String, protectedId: String) = action {
+        val recorded = store.saveFixtureComparison(selectedId(), exposedId, protectedId, app.config.config.value.version)
+        mutableNotice.value = if (recorded) "Lab comparison saved with both source hashes and outcomes. No new findings or access records were created."
+            else "This source pair/version already has a saved comparison; no duplicate was added."
+    }
+
     fun close() = action { store.close(selectedId()) }
     fun delete() = action { store.delete(selectedId()); mutableSelected.value = null }
 

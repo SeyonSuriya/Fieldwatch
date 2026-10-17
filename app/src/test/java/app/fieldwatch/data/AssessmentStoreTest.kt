@@ -86,6 +86,52 @@ class AssessmentStoreTest {
             receivedHex = ServiceInspection.hex(response.toByteArray()))
     }
 
+    @Test fun referenceComparisonIsEncryptedLinkedAndIdempotentWithoutFindings() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Synthetic fixtures")
+        store.saveServiceReport(engagement, referenceReport(), 94)
+        store.saveServiceReport(engagement, referenceReport(false).copy(port = 8082,
+            attemptedRequestHex = ServiceInspection.hex(ServiceInspection.request("192.168.1.1", 8082))), 94)
+        val sources = store.archive.value.engagements.single().evidence
+        assertTrue(store.saveFixtureComparison(engagement, sources[0].id, sources[1].id, 94))
+        val saved = store.archive.value.engagements.single()
+        val evidence = saved.evidence.single { it.source == "reference-fixture-comparison" }
+        val comparison = kotlinx.serialization.json.Json.decodeFromString<FixtureComparisonReport>(evidence.text)
+        assertEquals(FixtureComparisonOutcome.EXPECTED_REFERENCE_PAIR, comparison.outcome)
+        assertEquals(sources[0].sha256, comparison.exposed.sourceSha256)
+        assertEquals(sources[1].sha256, comparison.protectedControl.sourceSha256)
+        assertTrue(saved.findings.isEmpty()); assertTrue(saved.access.isEmpty())
+        assertFalse(store.saveFixtureComparison(engagement, sources[0].id, sources[1].id, 94))
+        assertEquals(saved, store.archive.value.engagements.single())
+        assertFalse(file.readBytes().toString(Charsets.ISO_8859_1).contains("EXPECTED_REFERENCE_PAIR"))
+        val reopened = store(file)
+        reopened.load()
+        assertEquals(store.archive.value, reopened.archive.value)
+        assertFalse(reopened.saveFixtureComparison(engagement, sources[0].id, sources[1].id, 94))
+        val summary = AssessmentReports.export(saved, false, 2000, "test")
+        assertFalse(summary.contains(sources[0].id)); assertFalse(summary.contains("EXPECTED_REFERENCE_PAIR"))
+        assertTrue(AssessmentReports.export(saved, true, 2000, "test").contains("EXPECTED_REFERENCE_PAIR"))
+    }
+
+    @Test fun closedEngagementAndRepeatedRoleCannotSaveComparison() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Synthetic fixtures")
+        store.saveServiceReport(engagement, referenceReport(), 94)
+        val source = store.archive.value.engagements.single().evidence.single()
+        val before = file.readBytes()
+        try { store.saveFixtureComparison(engagement, source.id, source.id, 94); fail("Expected distinct role rejection") }
+        catch (_: IllegalArgumentException) { }
+        assertArrayEquals(before, file.readBytes())
+        store.close(engagement)
+        try { store.saveFixtureComparison(engagement, source.id, "other", 94); fail("Expected closed engagement rejection") }
+        catch (_: IllegalArgumentException) { }
+        assertEquals(1, store.archive.value.engagements.single().evidence.size)
+    }
+
     @Test fun referenceValidationIsEncryptedLinkedAndIdempotentWithoutAccessClaims() = runBlocking {
         val file = File(temp.newFolder(), "vault.bin")
         val store = store(file)

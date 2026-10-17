@@ -51,7 +51,9 @@ M6a software slice: module contract with explicit identity/build prerequisites, 
 
 M6b prerequisite slice: reviewable operator-handset baseline capture from public local Android APIs, encrypted engagement storage, bounded history, summary/full export separation and legacy-schema compatibility. The development APK builds and all 696 JVM tests across 54 suites pass. It keeps operator-phone metadata separate from target records and makes no vulnerability/capability verdict. See [handset-baseline.md](handset-baseline.md) for Android 16 packaging review and physical checks.
 
-Next implementation step: finish M6b real-product fixture onboarding and device-specific validation. The user corrected the earlier A51 label to SM-A56B/DS, Android 16, security patch 2026-09-05; its operator/target role and exact firmware/build remain unconfirmed. M6 remains incomplete until affected/unaffected product behavior and handset checks are verified. A model name, banner, HTTP 200 or certificate failure alone must not establish a CVE or device-access claim.
+M6 verification-workflow slice: explicit exposed/protected source selection; offline pair comparison with independent integrity/target checks, network/endpoint/time/version prerequisites and inconclusive reasons; linked encrypted reports, readable/raw views and restart-safe deduplication. The development APK builds and all 706 JVM tests across 55 suites pass. See [fixture-comparison.md](fixture-comparison.md). Comparisons create no new findings or access records and do not certify physical devices.
+
+Next implementation step: finish M6b real-product fixture onboarding and device-specific validation. The user corrected the earlier A51 label to SM-A56B/DS, Android 16, security patch 2026-09-05; its operator/target role and exact firmware/build remain unconfirmed. M6 remains incomplete until affected/unaffected product behavior and handset checks are verified. A model name, banner, HTTP 200 or certificate failure alone must not establish a CVE or device-access claim. No further manufacturer-specific implementation can be validated from the supplied details alone.
 
 ## Required phase completion report
 
@@ -77,6 +79,8 @@ M5 suggested message: `feat: add versioned evidence checks and linked configurat
 M6a suggested message: `feat: add reference device validation and paired lab fixtures`.
 
 M6b prerequisite suggested message: `feat: add encrypted operator handset baselines and compatibility reporting`.
+
+M6 comparison suggested message: `feat: add evidence-linked reference fixture comparisons`.
 
 ## Initial check selection method
 
