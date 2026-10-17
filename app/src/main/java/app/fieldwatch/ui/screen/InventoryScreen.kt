@@ -24,7 +24,7 @@ import java.text.DateFormat
 import java.util.Date
 
 @Composable
-fun InventoryScreen(onBack: () -> Unit, vm: InventoryViewModel = viewModel()) {
+fun InventoryScreen(onBack: () -> Unit, onOpenTools: (InventoryRadio) -> Unit, vm: InventoryViewModel = viewModel()) {
     ProtectAssessmentScreen()
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner, vm) {
@@ -123,12 +123,15 @@ fun InventoryScreen(onBack: () -> Unit, vm: InventoryViewModel = viewModel()) {
                         Text("Device class: ${CodDecoder.decode(code).summary()} (0x${code.toString(16)})", style = MaterialTheme.typography.bodySmall)
                     }
                     row.vendor?.let { Text("Vendor lookup: $it", style = MaterialTheme.typography.bodySmall) }
+                    if (row.transport == AssessmentTransport.BLE || row.transport == AssessmentTransport.BLUETOOTH_CLASSIC) {
+                        OutlinedButton(onClick = { vm.stopInquiry(); onOpenTools(row) }, enabled = !busy) { Text("Open Bluetooth service tools") }
+                    }
                     OutlinedButton(onClick = { snapshot = row }, enabled = ready && !busy && archive.engagements.any { it.closedAt == null }) {
                         Text("Save snapshot to engagement")
                     }
                 }
             }
-            item { Text("Snapshots are saved only when selected. Network host discovery and service enumeration are later milestones.", style = MaterialTheme.typography.bodySmall) }
+            item { Text("Snapshots are saved only when selected. Bluetooth service tools open a separate connection screen. Network host discovery remains a later milestone.", style = MaterialTheme.typography.bodySmall) }
         }
     }
     snapshot?.let { frozen ->

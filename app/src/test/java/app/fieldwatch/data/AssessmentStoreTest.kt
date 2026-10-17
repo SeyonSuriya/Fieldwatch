@@ -217,6 +217,51 @@ class AssessmentStoreTest {
         assertEquals(2, first.archive.value.engagements.single().assets.size)
     }
 
+    @Test fun bluetoothProtocolEvidencePreservesPayloadAndCreatesNoVulnerabilityOrAccessVerdict() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val first = store(file)
+        first.load()
+        val id = first.create("Lab", "Authorized lab")
+        first.addAsset(id, "Sensor", "AA:BB:CC:00:00:01", AssessmentTransport.BLE)
+        val event = BluetoothToolEvent(1, 1, 500, BluetoothEventKind.RESULT, "Read returned bytes", payloadHex = "AABBCC", byteCount = 3)
+        val state = BluetoothToolState(BluetoothToolTarget("AA:BB:CC:00:00:01", AssessmentTransport.BLE), events = listOf(event))
+        val body = BluetoothToolReports.report(state, 700)
+        first.saveBluetoothSession(id, body, 94)
+        val saved = first.archive.value.engagements.single()
+        assertEquals("bluetooth-tools", saved.runs.single().checkId)
+        assertEquals("bluetooth-protocol-session", saved.evidence.single().source)
+        assertEquals(body, saved.evidence.single().text)
+        assertTrue(saved.findings.isEmpty())
+        assertTrue(saved.access.isEmpty())
+        assertFalse(file.readBytes().toString(Charsets.ISO_8859_1).contains("AABBCC"))
+        val second = store(file)
+        second.load()
+        assertEquals(first.archive.value, second.archive.value)
+    }
+
+    @Test fun protocolEvidenceRequiresMatchingTransportAndTargetInTheChosenEngagement() = runBlocking {
+        val first = store(File(temp.newFolder(), "vault.bin"))
+        first.load()
+        val id = first.create("Lab", "Authorized lab")
+        first.addAsset(id, "Sensor", "AA:BB:CC:00:00:01", AssessmentTransport.BLE)
+        val before = first.archive.value
+        val wrongTransport = BluetoothToolState(BluetoothToolTarget("AA:BB:CC:00:00:01", AssessmentTransport.BLUETOOTH_CLASSIC))
+        rejects { first.saveBluetoothSession(id, BluetoothToolReports.report(wrongTransport, 1000), 94) }
+        assertEquals(before, first.archive.value)
+    }
+
+    @Test fun closedEngagementCannotReceiveBluetoothProtocolEvidence() = runBlocking {
+        val first = store(File(temp.newFolder(), "vault.bin"))
+        first.load()
+        val id = first.create("Lab", "Authorized lab")
+        first.addAsset(id, "Sensor", "AA:BB:CC:00:00:01", AssessmentTransport.BLE)
+        first.close(id)
+        val before = first.archive.value
+        val state = BluetoothToolState(BluetoothToolTarget("AA:BB:CC:00:00:01", AssessmentTransport.BLE))
+        rejects { first.saveBluetoothSession(id, BluetoothToolReports.report(state, 1000), 94) }
+        assertEquals(before, first.archive.value)
+    }
+
     private suspend fun rejects(block: suspend () -> Unit) {
         try { block(); fail("Expected rejection") } catch (_: Exception) { /* expected */ }
     }

@@ -39,7 +39,9 @@ Still pending in the foundation: validation of Keystore/document-provider/UI beh
 
 M2 software slice: single-cycle Bluetooth Classic inquiry; explicitly distinct paired history; a unified Wi-Fi/BLE/Classic inventory; search/filters; bounded Bluetooth session state and loss counters; encrypted engagement snapshot imports. The development APK builds and all 585 tests pass. See [classic-inventory.md](classic-inventory.md) for behavior, boundaries, and handset checks. No service connections, pairing operations, or exploitation are implemented in M2.
 
-Next implementation milestone: M3 BLE GATT inspection and Classic service/serial tools. Physical verification remains with the user and is not represented as complete.
+M3 software slice: scoped BLE connections and GATT inventory; characteristic/descriptor reads; confirmed characteristic writes and notifications/indications; MTU limits; explicit cached/SDP UUID discovery; secure/insecure RFCOMM connection choices and hex/UTF-8 serial I/O; bounded transcripts and encrypted protocol-evidence snapshots. All 612 tests pass and the development APK builds. See [bluetooth-tools.md](bluetooth-tools.md) for security semantics, limitations, and handset checks. No device-specific vulnerability or access verdict is fabricated by these service tools.
+
+Next implementation milestone: M4 scoped connected-network discovery/service assessment and Wi-Fi security inventory. Physical verification remains with the user and is not represented as complete.
 
 ## Required phase completion report
 
@@ -53,6 +55,8 @@ For every development phase completion, show:
 M1 suggested message: `feat: add isolated development build and encrypted assessment workspace`.
 
 M2 suggested message: `feat: add Classic Bluetooth discovery and unified radio inventory`.
+
+M3 suggested message: `feat: add scoped BLE GATT inspection and Classic RFCOMM tools`.
 
 ## Initial check selection method
 

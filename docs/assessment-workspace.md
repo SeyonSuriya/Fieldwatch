@@ -1,6 +1,6 @@
 # Assessment workspace: first development slice
 
-This document describes the M1 engagement/evidence foundation and isolated development variant from M0. M2 subsequently adds [Classic discovery and unified inventory](classic-inventory.md). Active vulnerability checks, exploitation, and service/media access remain later roadmap milestones.
+This document describes the M1 engagement/evidence foundation and isolated development variant from M0. M2 adds [Classic discovery and unified inventory](classic-inventory.md); M3 adds [BLE GATT and Classic service/serial tools](bluetooth-tools.md). Device-specific vulnerability validation, exploitation, and media clients remain later roadmap milestones.
 
 ## Install and entry point
 

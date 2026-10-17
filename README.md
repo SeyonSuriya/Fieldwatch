@@ -62,6 +62,8 @@ Uninstall wipes what is on the phone. If you added signatures, changed Settings,
 
 ## What Fieldwatch is not
 
+These limitations describe the original distributed build in `dist/`. The separate **Fieldwatch Dev** source build now includes an assessment workspace, Classic discovery, and scoped Bluetooth service tools. See the [development roadmap](docs/assessment-roadmap.md), [radio inventory](docs/classic-inventory.md), and [Bluetooth tools](docs/bluetooth-tools.md). These additions do not provide universal device access or Bluetooth audio interception.
+
 - Not Wi-Fi clients, probe-only stations, or 802.11 monitor mode
 - Not Bluetooth Classic inquiry (HC-05 / HC-06 will not appear)
 - Not cellular

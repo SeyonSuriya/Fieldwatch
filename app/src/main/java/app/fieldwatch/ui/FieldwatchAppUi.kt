@@ -131,6 +131,9 @@ import app.fieldwatch.ui.screen.ReportsScreen
 import app.fieldwatch.ui.screen.ScanStatusScreen
 import app.fieldwatch.ui.screen.AssessmentsScreen
 import app.fieldwatch.ui.screen.InventoryScreen
+import app.fieldwatch.ui.screen.BluetoothToolsScreen
+import app.fieldwatch.domain.BluetoothToolTarget
+import app.fieldwatch.domain.AssessmentTransport
 import app.fieldwatch.ui.screen.SettingsScreen
 import app.fieldwatch.ui.theme.FieldwatchTheme
 import app.fieldwatch.ui.theme.LocalNightMode
@@ -733,7 +736,17 @@ private fun FieldwatchShell(state: FieldwatchUi, vm: FieldwatchViewModel) {
                 AssessmentsScreen(onBack = { nav.popBackStack() }, onInventory = { nav.navigate("assessment-inventory") { launchSingleTop = true } })
             }
             composable("assessment-inventory") {
-                InventoryScreen(onBack = { nav.popBackStack() })
+                InventoryScreen(onBack = { nav.popBackStack() }, onOpenTools = { radio ->
+                    nav.navigate("bluetooth-tools/${radio.transport.name}/${android.net.Uri.encode(radio.identifier)}") { launchSingleTop = true }
+                })
+            }
+            composable("bluetooth-tools/{transport}/{address}") { entry ->
+                val target = runCatching {
+                    BluetoothToolTarget(entry.arguments?.getString("address").orEmpty(),
+                        AssessmentTransport.valueOf(entry.arguments?.getString("transport").orEmpty())).validated()
+                }.getOrNull()
+                if (target != null) BluetoothToolsScreen(target, onBack = { nav.popBackStack() })
+                else Column { Text("Invalid Bluetooth target."); TextButton(onClick = { nav.popBackStack() }) { Text("Back") } }
             }
             composable("radio-bookmarks") {
                 RadioBookmarksScreen(

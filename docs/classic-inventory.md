@@ -1,5 +1,7 @@
 # M2: Classic Bluetooth discovery and unified inventory
 
+M3 subsequently adds [scoped Bluetooth service tools](bluetooth-tools.md) to BLE/Classic inventory rows. The M2-only boundaries below describe that phase's discovery behavior.
+
 ## Built
 
 - Assessments → **Open radio inventory** combines existing Wi-Fi/BLE sightings, Classic inquiry results, and Android pairing-history records.

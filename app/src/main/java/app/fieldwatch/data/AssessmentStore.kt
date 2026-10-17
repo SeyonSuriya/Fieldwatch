@@ -125,6 +125,23 @@ class AssessmentStore(
         return evidenceId
     }
 
+    suspend fun saveBluetoothSession(engagementId: String, body: String, catalogVersion: Int) {
+        require(body.toByteArray(Charsets.UTF_8).size <= AssessmentRules.MAX_NOTE_BYTES) { "Bluetooth evidence exceeds 64 KiB." }
+        val report = json.decodeFromString<BluetoothEvidenceReport>(body)
+        require(report.format == "fieldwatch-bluetooth-session" && report.formatVersion == 1) { "Unsupported Bluetooth evidence format." }
+        val target = report.target.validated()
+        edit(engagementId) { engagement ->
+            val asset = engagement.assets.firstOrNull { it.transport == target.transport && it.identifier.equals(target.address, true) }
+                ?: error("Add this Bluetooth target to the engagement before saving protocol evidence.")
+            val recordedAt = now()
+            val run = AssessmentRun(id(), asset.id, recordedAt, checkId = "bluetooth-tools", status = AssessmentRunStatus.RECORDED, endedAt = recordedAt)
+            val evidence = AssessmentEvidence(id(), asset.id, run.id, "Bluetooth protocol session", body,
+                AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), recordedAt, source = "bluetooth-protocol-session",
+                appVersion = appVersion, catalogVersion = catalogVersion)
+            engagement.copy(runs = engagement.runs + run, evidence = engagement.evidence + evidence)
+        }
+    }
+
     suspend fun finishObservation(engagementId: String, runId: String, cancelled: Boolean = false) {
         edit(engagementId) { engagement ->
             val run = engagement.runs.singleOrNull { it.id == runId } ?: error("Observation not found.")
