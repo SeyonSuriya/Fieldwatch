@@ -47,7 +47,9 @@ M4b software slice: explicit single-endpoint banner/HTTP HEAD/TLS/HTTPS HEAD ins
 
 M5 software slice: built-in versioned offline check registry with eight Wi-Fi/service configuration checks; condition/not-observed/inconclusive/not-applicable outcomes; review-before-save; confidence-limited findings with check versions and original/evaluation evidence links; encrypted atomic persistence and same-source/version deduplication. The development APK builds and all 669 tests across 52 suites pass. See [versioned-checks.md](versioned-checks.md). These are synthetic observation fixtures, not affected/fixed product certifications; handset verification remains pending. No CVE matching, credential attempts, exploitation or access records were added.
 
-Next implementation milestone: M6 device-specific validation modules, beginning with reproducible lab fixtures and explicit target/version prerequisites. Supported product modules still require affected/unaffected lab validation; a banner, HTTP 200 or certificate failure alone must not establish a CVE or device-access claim.
+M6a software slice: module contract with explicit identity/build prerequisites, support level, fixture revision, side effects and recovery; one LAB ONLY reference module; paired synthetic exposed/protected HTTP target modes using a shared fixture manifest; reviewable outcomes, encrypted reports, provenance-linked synthetic findings and restart-safe deduplication. The development APK builds; all 685 Android/JVM tests across 53 suites and 4 actual loopback HTTP fixture tests pass. See [device-validation.md](device-validation.md). No manufacturer device, CVE exploit or access record is supported by this reference module.
+
+Next implementation step: M6b real-product fixture onboarding and device-specific validation. The Samsung A51 was proposed; its testing role, exact variant, firmware/build and patch level remain to be confirmed. M6 remains incomplete until affected/unaffected product behavior and handset checks are verified. A model name, banner, HTTP 200 or certificate failure alone must not establish a CVE or device-access claim.
 
 ## Required phase completion report
 
@@ -69,6 +71,8 @@ M4a suggested message: `feat: add scoped Wi-Fi network checks and security obser
 M4b suggested message: `feat: add scoped service inspection and Wi-Fi security evidence`.
 
 M5 suggested message: `feat: add versioned evidence checks and linked configuration findings`.
+
+M6a suggested message: `feat: add reference device validation and paired lab fixtures`.
 
 ## Initial check selection method
 

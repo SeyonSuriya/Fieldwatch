@@ -69,6 +69,12 @@ class AssessmentViewModel(application: Application) : AndroidViewModel(applicati
         mutableNotice.value = "Checks recorded: $added new finding(s). Repeating checks on the same evidence/version adds no duplicates. Inconclusive and not-observed results are retained in the evaluation evidence."
     }
 
+    fun validateDeviceEvidence(evidenceId: String) = action {
+        val recorded = store.validateDeviceEvidence(selectedId(), evidenceId, app.config.config.value.version)
+        mutableNotice.value = if (recorded) "Reference lab validation saved. This module supports only the synthetic fixture; no manufacturer device or access claim was recorded."
+            else "This source/version already has a saved reference validation; no duplicate was added."
+    }
+
     fun close() = action { store.close(selectedId()) }
     fun delete() = action { store.delete(selectedId()); mutableSelected.value = null }
 

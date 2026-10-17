@@ -225,6 +225,33 @@ class AssessmentStore(
         return added
     }
 
+    suspend fun validateDeviceEvidence(engagementId: String, evidenceId: String, catalogVersion: Int): Boolean {
+        var recorded = false
+        edit(engagementId) { engagement ->
+            val report = DeviceValidation.evaluate(engagement, evidenceId, now())
+            val existing = engagement.evidence.filter { it.source == "device-validation" }.any {
+                val previous = json.decodeFromString<DeviceValidationReport>(it.text)
+                previous.sourceEvidenceId == report.sourceEvidenceId && previous.sourceSha256 == report.sourceSha256 &&
+                    previous.moduleId == report.moduleId && previous.moduleVersion == report.moduleVersion && previous.fixtureRevision == report.fixtureRevision
+            }
+            if (existing) return@edit engagement
+            val run = AssessmentRun(id(), report.assetId, report.evaluatedAt, checkId = report.moduleId,
+                checkVersion = report.moduleVersion, status = AssessmentRunStatus.RECORDED, endedAt = report.evaluatedAt)
+            val body = json.encodeToString(report)
+            val evidence = AssessmentEvidence(id(), report.assetId, run.id, "Reference lab validation (LAB ONLY)", body,
+                AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), report.evaluatedAt,
+                source = "device-validation", appVersion = appVersion, catalogVersion = catalogVersion)
+            val findings = if (report.outcome == DeviceValidationOutcome.LAB_MARKER_EXPOSED) listOf(AssessmentFinding(
+                id(), report.assetId, "Reference lab canary exposed without credentials (LAB ONLY)",
+                "${report.explanation}\nUse the protected fixture mode and collect a fresh observation for comparison. No real device files, media, credentials or CVE are involved.",
+                FindingSeverity.LOW, FindingConfidence.CONFIRMED, listOf(evidenceId, evidence.id), report.evaluatedAt,
+                checkId = report.moduleId, checkVersion = report.moduleVersion)) else emptyList()
+            recorded = true
+            engagement.copy(runs = engagement.runs + run, evidence = engagement.evidence + evidence, findings = engagement.findings + findings)
+        }
+        return recorded
+    }
+
     suspend fun finishObservation(engagementId: String, runId: String, cancelled: Boolean = false) {
         edit(engagementId) { engagement ->
             val run = engagement.runs.singleOrNull { it.id == runId } ?: error("Observation not found.")

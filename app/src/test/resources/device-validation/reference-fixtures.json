@@ -1,0 +1,10 @@
+{
+  "fixture_revision": 1,
+  "product": "fieldwatch-reference-camera",
+  "protocol": "1",
+  "marker": "FW-LAB-CANARY-1",
+  "modes": {
+    "exposed": { "build": "1.0-exposed", "status": 200 },
+    "protected": { "build": "1.1-protected", "status": 401 }
+  }
+}

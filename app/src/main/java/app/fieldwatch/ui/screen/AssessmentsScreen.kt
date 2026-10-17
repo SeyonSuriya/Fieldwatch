@@ -37,6 +37,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
     var targetEvidence by remember(selectedId) { mutableStateOf<String?>(null) }
     var checkPreview by remember(selectedId) { mutableStateOf<CheckEvaluation?>(null) }
     var checkError by remember(selectedId) { mutableStateOf<String?>(null) }
+    var devicePreview by remember(selectedId) { mutableStateOf<DeviceValidationReport?>(null) }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json"), vm::writeReport)
     LaunchedEffect(exportRequested) {
         if (exportRequested) {
@@ -115,6 +116,10 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                                     runCatching { AssessmentChecks.evaluate(selected, evidence.id, System.currentTimeMillis()) }
                                         .onSuccess { checkPreview = it }.onFailure { checkError = "This evidence cannot be evaluated: ${it.message}" }
                                 }, enabled = editable) { Text("Review versioned checks") }
+                                if (evidence.source == "service-inspection") OutlinedButton(onClick = {
+                                    runCatching { DeviceValidation.evaluate(selected, evidence.id, System.currentTimeMillis()) }
+                                        .onSuccess { devicePreview = it }.onFailure { checkError = "Device validation unavailable: ${it.message}" }
+                                }, enabled = editable) { Text("Review reference lab module") }
                                 TextButton(onClick = { targetEvidence = evidence.id; dialog = "finding" }, enabled = editable) { Text("Record suspected finding") }
                             }
                             selected.findings.filter { it.assetId == asset.id }.forEach { finding ->
@@ -149,6 +154,20 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
         } },
         confirmButton = { TextButton(onClick = { vm.evaluateEvidence(preview.sourceEvidenceId); checkPreview = null }, enabled = !busy) { Text("Save check results") } },
         dismissButton = { TextButton(onClick = { checkPreview = null }) { Text("Cancel") } }) }
+    devicePreview?.let { preview -> AlertDialog(onDismissRequest = { devicePreview = null }, title = { Text("Reference module · LAB ONLY") },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            val module = DeviceValidation.reference
+            Text("${module.id} v${module.version} · fixture revision ${module.fixtureRevision}")
+            Text("Prerequisites: ${module.prerequisites}")
+            Text("Exposed builds: ${module.affectedBuilds.joinToString()}\nProtected controls: ${module.fixedBuilds.joinToString()}")
+            Text("Claimed product: ${preview.claimedProduct ?: "unavailable"}\nClaimed build: ${preview.claimedBuild ?: "unavailable"}")
+            Text(preview.outcome.name, style = MaterialTheme.typography.titleSmall)
+            Text(preview.explanation)
+            Text("Effects: ${module.sideEffects}\nRecovery: ${module.recovery}")
+            Text("This review sends no traffic. Saving retains the original evidence link and this result. A finding is created only for the synthetic exposed marker; no access record is created.")
+        } },
+        confirmButton = { TextButton(onClick = { vm.validateDeviceEvidence(preview.sourceEvidenceId); devicePreview = null }, enabled = !busy) { Text("Save lab validation") } },
+        dismissButton = { TextButton(onClick = { devicePreview = null }) { Text("Cancel") } }) }
     when (dialog) {
         "create" -> TextEntryDialog("New engagement", "Name", "Authorized targets, boundaries and assessment notes", 100, 4000,
             onDismiss = { dialog = null }) { name, scope -> vm.create(name, scope); dialog = null }

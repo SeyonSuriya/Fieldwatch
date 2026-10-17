@@ -29,6 +29,70 @@ class AssessmentStoreTest {
     private fun wifiReport() = WifiSecurityReport(bssid = "AA:BB:CC:DD:EE:01", ssid = "Private lab", channel = 6, frequencyMhz = 2437,
         firstSeen = 10, lastSeen = 20, capturedAt = 30, capabilities = "[ESS]", parsedSecurity = null, analysis = WifiSecurityAnalysis.describe("[ESS]"))
 
+    private fun referenceReport(exposed: Boolean = true): ServiceInspectionReport {
+        val response = "HTTP/1.0 ${if (exposed) "200 OK" else "401 Unauthorized"}\r\n" +
+            "X-Fieldwatch-Lab-Product: fieldwatch-reference-camera\r\nX-Fieldwatch-Lab-Protocol: 1\r\n" +
+            "X-Fieldwatch-Lab-Build: ${if (exposed) "1.0-exposed" else "1.1-protected"}\r\n" +
+            (if (exposed) "X-Fieldwatch-Lab-Canary: ${DeviceValidation.MARKER}\r\n" else "WWW-Authenticate: Basic realm=\"FieldwatchLab\"\r\n") + "\r\n"
+        return serviceReport().copy(attemptedRequestHex = ServiceInspection.hex(ServiceInspection.request("192.168.1.1", 80)),
+            receivedHex = ServiceInspection.hex(response.toByteArray()))
+    }
+
+    @Test fun referenceValidationIsEncryptedLinkedAndIdempotentWithoutAccessClaims() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Synthetic reference only")
+        store.saveServiceReport(engagement, referenceReport(), 94)
+        val source = store.archive.value.engagements.single().evidence.single()
+        assertTrue(store.validateDeviceEvidence(engagement, source.id, 94))
+        val saved = store.archive.value.engagements.single()
+        val reportEvidence = saved.evidence.single { it.source == "device-validation" }
+        val report = kotlinx.serialization.json.Json.decodeFromString<DeviceValidationReport>(reportEvidence.text)
+        assertEquals(DeviceValidationOutcome.LAB_MARKER_EXPOSED, report.outcome)
+        assertEquals(source.sha256, report.sourceSha256)
+        assertEquals(listOf(source.id, reportEvidence.id), saved.findings.single().evidenceIds)
+        assertTrue(saved.findings.single().title.contains("LAB ONLY"))
+        assertTrue(saved.access.isEmpty())
+        assertFalse(store.validateDeviceEvidence(engagement, source.id, 94))
+        assertEquals(saved, store.archive.value.engagements.single())
+        assertFalse(file.readBytes().toString(Charsets.ISO_8859_1).contains("LAB_MARKER_EXPOSED"))
+        val reopened = store(file)
+        reopened.load()
+        assertEquals(store.archive.value, reopened.archive.value)
+        assertFalse(reopened.validateDeviceEvidence(engagement, source.id, 94))
+        assertFalse(AssessmentReports.export(saved, false, 2000, "test").contains(DeviceValidation.reference.id))
+        assertTrue(AssessmentReports.export(saved, true, 2000, "test").contains("LAB_MARKER_EXPOSED"))
+    }
+
+    @Test fun protectedAndUnknownReferenceResultsRemainEvidenceOnly() = runBlocking {
+        val store = store(File(temp.newFolder(), "vault.bin"))
+        store.load()
+        val engagement = store.create("Lab", "Synthetic reference only")
+        store.saveServiceReport(engagement, referenceReport(false), 94)
+        store.saveServiceReport(engagement, serviceReport(), 94)
+        val sources = store.archive.value.engagements.single().evidence.toList()
+        sources.forEach { assertTrue(store.validateDeviceEvidence(engagement, it.id, 94)) }
+        val saved = store.archive.value.engagements.single()
+        assertEquals(4, saved.evidence.size)
+        assertTrue(saved.findings.isEmpty()); assertTrue(saved.access.isEmpty())
+    }
+
+    @Test fun closedEngagementRejectsReferenceValidationWithoutMutation() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Synthetic reference only")
+        store.saveServiceReport(engagement, referenceReport(), 94)
+        val source = store.archive.value.engagements.single().evidence.single()
+        store.close(engagement)
+        val before = file.readBytes()
+        try { store.validateDeviceEvidence(engagement, source.id, 94); fail("Expected closed engagement rejection") }
+        catch (_: IllegalArgumentException) { }
+        assertArrayEquals(before, file.readBytes())
+        assertTrue(store.archive.value.engagements.single().findings.isEmpty())
+    }
+
     @Test fun versionedEvaluationsAreLinkedEncryptedAndIdempotent() = runBlocking {
         val file = File(temp.newFolder(), "vault.bin")
         val store = store(file)
