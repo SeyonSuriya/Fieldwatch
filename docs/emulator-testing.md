@@ -169,3 +169,60 @@ removes the test engagement if picker cleanup fails.
 Next validation step: interrupted-session recovery and app-restart behavior on the
 emulator. Physical-radio, OEM picker and manufacturer-device verification remain
 separate from these simulated results.
+
+
+## Interrupted-observation process-restart phase
+
+The runner now executes the eight standard tests followed by three separately
+selected instrumentation methods, with `am force-stop app.fieldwatch.simulation`
+between restart phases. Every command remains pinned to the validated emulator.
+These launches use the real Fieldwatch Application, production AssessmentStore and
+its existing Android Keystore-backed vault. They do not replace the app's key,
+reset its data or use a second in-memory store as a substitute for process restart.
+
+1. Seed: create a uniquely identified synthetic engagement with one recorded
+   observation and one running observation, both containing synthetic evidence.
+2. Recover in a different PID: verify the running observation becomes INTERRUPTED
+   with an end timestamp, the recorded observation stays recorded, and a normalized
+   hash proves every other engagement field is preserved. Check evidence hashes,
+   reject late evidence on the interrupted observation, and verify the fixture
+   token is absent from plaintext in the encrypted vault.
+3. Restart again in a different PID: verify the recovered engagement's complete
+   hash is unchanged, then delete only that synthetic engagement and its handoff.
+
+Use the script for these restart tests; running the whole restart class directly
+in Android Studio does not provide the required token, phase order or process stops.
+
+The app-private handoff contains fixture IDs, process IDs and hashes, not plaintext
+report contents. A UUID token identifies this run; cleanup validates its engagement
+name and scope before deletion. Failed runs attempt separate cleanup and retain
+their failed status even if cleanup passes. Cleanup is not counted as a validation
+pass. The total required is eleven checks: eight standard tests plus three restart
+phases. Each invocation must report its exact expected count without skips/errors.
+
+Logs: `.gradle/emulator-restart-seed.log`, `emulator-restart-recovery.log`,
+`emulator-restart-durable.log`, optional `emulator-restart-cleanup.log`, and combined
+`.gradle/emulator-run-restart.log`. The result JSON separates standard and restart
+counts and records the APK hashes used.
+
+This covers process interruption after completed persistence calls. It does not
+cover power loss during a write, a full OS reboot, key loss/invalidation, foreground
+MainActivity startup performance, radio reconnection or an OEM-specific lifecycle.
+
+
+Restart-phase validation, **4 November 2026 (Asia/Colombo)**: compilation passed
+in 1m 4s, and the runner completed successfully on the existing Android
+17/API 37 emulator. All **11 checks passed, zero skipped**:
+eight standard tests plus three separately launched restart phases. Their runner
+times were 0.384s (seed), 0.532s (recover) and 0.2s (durability/cleanup), excluding
+process startup and the standard suite. The final result was recorded at
+`2026-11-03T19:02:53.0357944+00:00` UTC.
+
+Test APK SHA-256: `8a0d81901e3c7ac3db3d109696ec61d8d8dea59b2cd20e4ddc60b0c6cadc854f`.
+The simulation app APK retained SHA-256 `4f657787e3d282c2a791d356198e42277e9ded92c21425d5466c11433def45f1`;
+production app behavior was unchanged. Both cross-process PID assertions, normalized
+engagement/evidence preservation, rejected late evidence, durable interruption state,
+encrypted-vault plaintext check and synthetic fixture cleanup passed.
+
+Next: isolated Android Keystore/vault failure tests for corrupted ciphertext and
+unavailable keys, without altering the app's real assessment vault or key.

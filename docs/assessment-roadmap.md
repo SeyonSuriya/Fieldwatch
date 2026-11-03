@@ -99,3 +99,5 @@ The initial candidate areas are exposed management interfaces, missing service a
 Extended emulator coverage suggested message: `test: verify lifecycle cancellation and simulated Bluetooth sessions on Android`. Six runtime tests and seven host fixture tests pass; system document-picker coverage is next.
 
 Document-picker phase suggested message: `test: verify Android document-picker exports and cancellation`. Eight runtime tests pass, including real local Downloads summary/full export, cancellation/retry, frozen-selection behavior and synthetic-file cleanup. Next: interrupted-session recovery and app-restart validation.
+
+Process-restart phase suggested message: `test: verify interrupted assessment recovery across app restarts`. Eleven emulator checks pass (eight standard plus three restart phases); completed records and evidence remain intact, interrupted state is durable, and synthetic fixtures are cleaned up. Next: isolated encrypted-vault failure handling tests.

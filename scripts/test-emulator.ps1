@@ -20,6 +20,8 @@ foreach ($taskName in @('JAVA_HOME','ANDROID_HOME','ANDROID_SDK_ROOT','ANDROID_U
     $taskPrevious[$taskName] = [Environment]::GetEnvironmentVariable($taskName, 'Process')
 }
 $taskServer = $null
+$taskRestartPending = $false
+$taskRestartToken = [Guid]::NewGuid().ToString('N')
 $taskStartedAt = [DateTimeOffset]::UtcNow.ToString('o')
 $taskResultPath = Join-Path $taskRoot '.gradle/emulator-result.json'
 Push-Location -LiteralPath $taskRoot
@@ -62,28 +64,54 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Simulation APK installation failed.' }
     & $taskAdb -s $EmulatorSerial install -r -t app/build/outputs/apk/androidTest/simulation/app-simulation-androidTest.apk
     if ($LASTEXITCODE -ne 0) { throw 'Instrumentation APK installation failed.' }
-    $taskOutput = & $taskAdb -s $EmulatorSerial shell am instrument -w -r -e timeout_msec 120000 -e class app.fieldwatch.SimulationAssessmentTest app.fieldwatch.simulation.test/androidx.test.runner.AndroidJUnitRunner 2>&1
-    $taskExit = $LASTEXITCODE
-    $taskOutput | Set-Content -LiteralPath .gradle/emulator-instrumentation.log
-    $taskOutput | Write-Output
-    $taskText = $taskOutput -join "`n"
-    if ($taskExit -ne 0 -or $taskText -notmatch 'OK \(8 tests\)' -or $taskText -match '(?m)^(FAILURES!|INSTRUMENTATION_FAILED|INSTRUMENTATION_RESULT: shortMsg=|INSTRUMENTATION_STATUS_CODE: -[234](?:\s|$))') {
-        throw 'Emulator tests failed, crashed or were skipped. Inspect .gradle/emulator-instrumentation.log.'
+    function Invoke-FieldwatchSimulationTest([string]$TestClass, [int]$ExpectedCount, [string]$LogName, [switch]$Restart) {
+        $taskArguments = @('-s', $EmulatorSerial, 'shell', 'am', 'instrument', '-w', '-r', '-e', 'timeout_msec', '120000', '-e', 'class', $TestClass)
+        if ($Restart) { $taskArguments += @('-e', 'restartToken', $taskRestartToken) }
+        $taskArguments += 'app.fieldwatch.simulation.test/androidx.test.runner.AndroidJUnitRunner'
+        $taskOutput = & $taskAdb @taskArguments 2>&1
+        $taskExit = $LASTEXITCODE
+        $taskOutput | Set-Content -LiteralPath (Join-Path '.gradle' $LogName)
+        $taskOutput | Write-Output
+        $taskText = $taskOutput -join "`n"
+        $taskExpected = 'OK \(' + $ExpectedCount + ' tests?\)'
+        if ($taskExit -ne 0 -or $taskText -notmatch $taskExpected -or $taskText -match '(?m)^(FAILURES!|INSTRUMENTATION_FAILED|INSTRUMENTATION_RESULT: shortMsg=|INSTRUMENTATION_STATUS_CODE: -[234](?:\s|$))') {
+            throw "Emulator tests failed, crashed or were skipped. Inspect .gradle/$LogName."
+        }
     }
+    function Stop-FieldwatchSimulation {
+        # Fixed simulation package only; never force-stop the user's development app or phone.
+        & $taskAdb -s $EmulatorSerial shell am force-stop app.fieldwatch.simulation
+        if ($LASTEXITCODE -ne 0) { throw 'Could not stop the simulation app for the restart check.' }
+    }
+    Invoke-FieldwatchSimulationTest 'app.fieldwatch.SimulationAssessmentTest' 8 'emulator-instrumentation.log'
+    Stop-FieldwatchSimulation
+    $taskRestartPending = $true
+    Invoke-FieldwatchSimulationTest 'app.fieldwatch.SimulationRestartTest#seedInterruptedEngagement' 1 'emulator-restart-seed.log' -Restart
+    Stop-FieldwatchSimulation
+    Invoke-FieldwatchSimulationTest 'app.fieldwatch.SimulationRestartTest#verifyRecoveredEngagement' 1 'emulator-restart-recovery.log' -Restart
+    Stop-FieldwatchSimulation
+    Invoke-FieldwatchSimulationTest 'app.fieldwatch.SimulationRestartTest#verifyRecoveryIsDurableAndCleanup' 1 'emulator-restart-durable.log' -Restart
+    $taskRestartPending = $false
     $taskRelease = (& $taskAdb -s $EmulatorSerial shell getprop ro.build.version.release).Trim()
     [ordered]@{
         format='fieldwatch-emulator-run';version=1;status='PASSED';startedAtUtc=$taskStartedAt;finishedAtUtc=[DateTimeOffset]::UtcNow.ToString('o')
-        emulator=$EmulatorSerial;api=[int]$taskApi;androidRelease=$taskRelease;testsPassed=8;testsSkipped=0
+        emulator=$EmulatorSerial;api=[int]$taskApi;androidRelease=$taskRelease;testsPassed=11;testsSkipped=0;standardTestsPassed=8;restartTestsPassed=3
         simulationApkSha256=(Get-FileHash -Algorithm SHA256 app/build/outputs/apk/simulation/app-simulation.apk).Hash.ToLowerInvariant()
         testApkSha256=(Get-FileHash -Algorithm SHA256 app/build/outputs/apk/androidTest/simulation/app-simulation-androidTest.apk).Hash.ToLowerInvariant()
-        limitations=@('Emulator only','Synthetic local services','No physical radio or manufacturer-device certification','SAF coverage limited to local Downloads in the emulator')
+        limitations=@('Emulator only','Synthetic local services','No physical radio or manufacturer-device certification','SAF coverage limited to local Downloads in the emulator','Process restart only; no mid-write power-loss or OS-reboot testing')
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $taskResultPath
-    Write-Output "PASS: 8 simulation tests on $EmulatorSerial (API $taskApi). No physical-device or radio certification."
+    Write-Output "PASS: 11 simulation tests (8 standard + 3 restart phases) on $EmulatorSerial (API $taskApi). No physical-device or radio certification."
 } catch {
     [ordered]@{status='FAILED';startedAtUtc=$taskStartedAt;finishedAtUtc=[DateTimeOffset]::UtcNow.ToString('o');emulator=$EmulatorSerial;details='See emulator-instrumentation.log and runner output.'} |
         ConvertTo-Json | Set-Content -LiteralPath $taskResultPath
     throw
 } finally {
+    if ($taskRestartPending) {
+        try {
+            Stop-FieldwatchSimulation
+            Invoke-FieldwatchSimulationTest 'app.fieldwatch.SimulationRestartTest#cleanupRestartFixture' 1 'emulator-restart-cleanup.log' -Restart
+        } catch { Write-Warning "Synthetic restart fixture cleanup failed. Preserve the emulator data and inspect .gradle/emulator-restart-cleanup.log." }
+    }
     if ($taskServer -and -not $taskServer.HasExited) { Stop-Process -Id $taskServer.Id -Force }
     foreach ($taskName in $taskPrevious.Keys) { [Environment]::SetEnvironmentVariable($taskName, $taskPrevious[$taskName], 'Process') }
     Pop-Location
