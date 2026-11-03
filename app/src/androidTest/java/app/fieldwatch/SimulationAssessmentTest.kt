@@ -5,7 +5,11 @@ import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.activity.ComponentActivity
+import androidx.lifecycle.Lifecycle
+import app.fieldwatch.ui.NetworkAssessmentViewModel
+import app.fieldwatch.ui.screen.NetworkAssessmentScreen
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import app.fieldwatch.data.*
@@ -27,7 +31,7 @@ import javax.crypto.SecretKey
 /** Emulator-only suite against synthetic host services. Never points at a real router. */
 @RunWith(AndroidJUnit4::class)
 class SimulationAssessmentTest {
-    @get:Rule val compose = createComposeRule()
+    @get:Rule val compose = createAndroidComposeRule<ComponentActivity>()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private val host = "10.0.2.2"
     private val basePort = 18081
@@ -116,6 +120,83 @@ class SimulationAssessmentTest {
             assertEquals("", report.receivedHex)
             assertNull(report.tlsProtocol)
         } finally { client.close() }
+    }
+
+    @Test fun backgroundingNetworkScreenCancelsInspection() {
+        val app = context.applicationContext as FieldwatchApp
+        val vm = NetworkAssessmentViewModel(app)
+        val id = runBlocking {
+            app.assessments.load()
+            app.assessments.create("Simulation lifecycle", "Synthetic slow loopback service only")
+        }
+        try {
+            compose.setContent { MaterialTheme { NetworkAssessmentScreen(onBack = {}, vm = vm) } }
+            compose.runOnIdle { vm.inspect(id, host, (basePort + 2).toString(), ServiceProbe.HTTP_HEAD) }
+            compose.waitUntil(5000) { vm.busy.value && vm.notice.value.startsWith("Inspecting") }
+            // Exercise the screen's ON_STOP observer, rather than calling stop directly.
+            compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+            runBlocking { withTimeout(3000) { while (vm.busy.value) delay(25) } }
+            assertNull(vm.service.value)
+            assertEquals("Inspection stopped; no completed report was recorded.", vm.notice.value)
+            compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+            assertTrue(app.assessments.archive.value.engagements.single { it.id == id }.evidence.isEmpty())
+        } finally {
+            compose.runOnIdle { vm.stop() }
+            runBlocking { app.assessments.delete(id) }
+        }
+    }
+
+    @Test fun simulatedBluetoothFailuresAndStaleCallbacks() {
+        // A fake transport exercises controller logic on Android, never GATT/RFCOMM hardware.
+        val port = SimulatedBluetoothPort()
+        val ble = BluetoothToolSession(BluetoothToolTarget("02:00:00:00:00:01", AssessmentTransport.BLE), port)
+        ble.connectBle()
+        val token = ble.state.value.session
+        ble.connected(token)
+        ble.discoverGatt()
+        ble.gattDiscovered(token, listOf(GattServiceInfo("s0", BluetoothToolValues.uuid("1800"), true,
+            listOf(GattCharacteristicInfo("s0/c0", BluetoothToolValues.uuid("2A00"), BluetoothToolValues.READ)))), 0)
+        ble.writeCharacteristic("s0/c0", byteArrayOf(1), false)
+        assertEquals(0, port.writes)
+        ble.readCharacteristic("s0/c0")
+        ble.result(token, BluetoothToolOperation.READ_CHARACTERISTIC, "s0/c0", 5)
+        assertTrue(ble.state.value.values.isEmpty())
+        assertEquals(BluetoothEventKind.ERROR, ble.state.value.events.last().kind)
+        ble.disconnect()
+        val disconnected = ble.state.value
+        ble.result(token, BluetoothToolOperation.READ_CHARACTERISTIC, "s0/c0", 0, byteArrayOf(99))
+        ble.connected(token)
+        assertEquals(disconnected, ble.state.value)
+
+        val classic = BluetoothToolSession(BluetoothToolTarget("02:00:00:00:00:02", AssessmentTransport.BLUETOOTH_CLASSIC), port)
+        classic.connectRfcomm("1101", true)
+        val classicToken = classic.state.value.session
+        classic.connected(classicToken)
+        classic.sendRfcomm(byteArrayOf(1, 2))
+        assertEquals(0L, classic.state.value.sentBytes)
+        classic.result(classicToken, BluetoothToolOperation.SEND_RFCOMM, null, 0)
+        assertEquals(2L, classic.state.value.sentBytes)
+        classic.disconnect()
+        val closed = classic.state.value
+        classic.incoming(classicToken, false, null, byteArrayOf(3))
+        assertEquals(closed, classic.state.value)
+        assertEquals(1, port.writes)
+    }
+
+    private class SimulatedBluetoothPort : BluetoothToolPort {
+        var writes = 0
+        override fun close() = Unit
+        override fun connectBle(session: Long) = true
+        override fun discoverGatt() = true
+        override fun readCharacteristic(key: String) = true
+        override fun readDescriptor(key: String) = true
+        override fun writeCharacteristic(key: String, bytes: ByteArray, withoutResponse: Boolean): Boolean { writes++; return true }
+        override fun notifications(key: String, enable: Boolean, indicate: Boolean) = true
+        override fun requestMtu() = true
+        override fun cachedUuids() = listOf("1101")
+        override fun fetchSdp(session: Long) = true
+        override fun connectRfcomm(session: Long, uuid: String, secure: Boolean) = true
+        override fun sendRfcomm(session: Long, bytes: ByteArray): Boolean { writes++; return true }
     }
 
     @Test fun assessmentUiCreatesEngagementAndSavesLocalBaseline() {

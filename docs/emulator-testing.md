@@ -90,3 +90,35 @@ An occupied fixture port fails startup rather than stopping another process. An 
 Keep only one AVD running on this 16 GB desktop and finish memory-heavy builds before starting tests where possible. The emulator may appear offline while Android's first boot and system package initialization are still in progress. Kernel diagnostics are more informative than repeated blind restarts. The passing run used the existing Pixel_10 profile alone after duplicate task-owned emulator instances were stopped. The final helper invocation was `./scripts/test-emulator.ps1 -EmulatorSerial emulator-5580 -SkipBuild`. Each test has a 120-second runner limit; limits/failures are not treated as passes.
 
 Primary references: [Android instrumented tests](https://developer.android.com/training/testing/instrumented-tests) and [Android Emulator networking](https://developer.android.com/studio/run/emulator-networking).
+
+
+## Extended lifecycle and Bluetooth controller coverage
+
+The suite now declares six tests. The two added scenarios exercise the actual network
+screen ON_STOP observer while a synthetic HEAD response is pending, and a fake
+Bluetooth transport on the Android runtime. Bluetooth assertions cover rejection of
+a write to a read-only characteristic, authentication-error handling, stale BLE
+callbacks after disconnect, and Classic RFCOMM sent-byte accounting and stale input.
+No Bluetooth radio, pairing, GATT platform implementation or RFCOMM socket is exercised
+by the fake transport. The lifecycle test checks that stopping the screen produces no
+completed service report or persisted evidence.
+
+The runner requires exactly six passing tests and rejects failures/skips. The earlier
+four-test result above describes the earlier APKs only. Extended-suite execution is
+recorded separately below after validation. System document-picker UI coverage remains
+pending; app-private export generation is already covered.
+
+
+Extended-suite validation, 3 November 2026: test APK compilation passed (1m 27s),
+all seven desktop fixture tests passed, and all six Android instrumentation tests
+passed with zero skipped on `emulator-5580`, API 37, in 58.518 seconds.
+The helper exited successfully and recorded `PASSED` at `2026-11-03T18:27:28.9525271+00:00`.
+Test APK SHA-256: `eb2e302d41dcc3230df85f32ca2c6014f5c99b30c42a4238a7d7a3f85c69913a`.
+
+The first six-test run passed inside Android but the helper falsely rejected its
+output because an unanchored `FAILURES` pattern matched a test method name.
+Failure detection now matches instrumentation failure lines; checks verified crash,
+failure, ignored and assumption-failure markers still reject the run, while that
+test name does not. The full suite was rerun successfully after this correction.
+Production app behavior and physical-radio verification are unchanged. Next step:
+system document-picker export and cancellation tests using synthetic reports.

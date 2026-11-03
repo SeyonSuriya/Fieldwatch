@@ -67,18 +67,18 @@ try {
     $taskOutput | Set-Content -LiteralPath .gradle/emulator-instrumentation.log
     $taskOutput | Write-Output
     $taskText = $taskOutput -join "`n"
-    if ($taskExit -ne 0 -or $taskText -notmatch 'OK \(4 tests\)' -or $taskText -match 'FAILURES|INSTRUMENTATION_FAILED|shortMsg=|INSTRUMENTATION_STATUS_CODE: -[234]') {
+    if ($taskExit -ne 0 -or $taskText -notmatch 'OK \(6 tests\)' -or $taskText -match '(?m)^(FAILURES!|INSTRUMENTATION_FAILED|INSTRUMENTATION_RESULT: shortMsg=|INSTRUMENTATION_STATUS_CODE: -[234](?:\s|$))') {
         throw 'Emulator tests failed, crashed or were skipped. Inspect .gradle/emulator-instrumentation.log.'
     }
     $taskRelease = (& $taskAdb -s $EmulatorSerial shell getprop ro.build.version.release).Trim()
     [ordered]@{
         format='fieldwatch-emulator-run';version=1;status='PASSED';startedAtUtc=$taskStartedAt;finishedAtUtc=[DateTimeOffset]::UtcNow.ToString('o')
-        emulator=$EmulatorSerial;api=[int]$taskApi;androidRelease=$taskRelease;testsPassed=4;testsSkipped=0
+        emulator=$EmulatorSerial;api=[int]$taskApi;androidRelease=$taskRelease;testsPassed=6;testsSkipped=0
         simulationApkSha256=(Get-FileHash -Algorithm SHA256 app/build/outputs/apk/simulation/app-simulation.apk).Hash.ToLowerInvariant()
         testApkSha256=(Get-FileHash -Algorithm SHA256 app/build/outputs/apk/androidTest/simulation/app-simulation-androidTest.apk).Hash.ToLowerInvariant()
         limitations=@('Emulator only','Synthetic local services','No physical radio or manufacturer-device certification','SAF picker UI not tested')
     } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $taskResultPath
-    Write-Output "PASS: 4 simulation tests on $EmulatorSerial (API $taskApi). No physical-device or radio certification."
+    Write-Output "PASS: 6 simulation tests on $EmulatorSerial (API $taskApi). No physical-device or radio certification."
 } catch {
     [ordered]@{status='FAILED';startedAtUtc=$taskStartedAt;finishedAtUtc=[DateTimeOffset]::UtcNow.ToString('o');emulator=$EmulatorSerial;details='See emulator-instrumentation.log and runner output.'} |
         ConvertTo-Json | Set-Content -LiteralPath $taskResultPath
