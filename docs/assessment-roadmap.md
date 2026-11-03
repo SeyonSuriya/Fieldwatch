@@ -53,7 +53,11 @@ M6b prerequisite slice: reviewable operator-handset baseline capture from public
 
 M6 verification-workflow slice: explicit exposed/protected source selection; offline pair comparison with independent integrity/target checks, network/endpoint/time/version prerequisites and inconclusive reasons; linked encrypted reports, readable/raw views and restart-safe deduplication. The development APK builds and all 706 JVM tests across 55 suites pass. See [fixture-comparison.md](fixture-comparison.md). Comparisons create no new findings or access records and do not certify physical devices.
 
-Next implementation step: finish M6b real-product fixture onboarding and device-specific validation. The user corrected the earlier A51 label to SM-A56B/DS, Android 16, security patch 2026-09-05; its operator/target role and exact firmware/build remain unconfirmed. M6 remains incomplete until affected/unaffected product behavior and handset checks are verified. A model name, banner, HTTP 200 or certificate failure alone must not establish a CVE or device-access claim. No further manufacturer-specific implementation can be validated from the supplied details alone.
+Simulation setup, 3 November 2026: the user authorized Android Studio/emulator-based testing. Added isolated `app.fieldwatch.simulation` app/test builds, four Android instrumentation tests, loopback exposed/protected/slow/invalid-TLS services and a serial-pinned PowerShell runner. Both APKs compile; 706 existing JVM tests and 7 desktop fixture tests pass. The available API 37 virtual device stayed ADB-offline during headless/cold-boot attempts; instrumentation has not run. See [emulator-testing.md](emulator-testing.md). This simulation work is independent of manufacturer vulnerability certification.
+
+Existing-device runtime verification, 3 November 2026: the existing Pixel_10 AVD booted Android 17/API 37. After diagnosing an initial startup ANR and updating incompatible AndroidX test tooling to the public InputManager API, the four instrumentation tests passed with zero failures/skips. The helper now records current run status/runtime/APK hashes and quotes the Kotlin compiler property correctly for PowerShell. See [emulator-testing.md](emulator-testing.md) and the ignored local `.gradle/emulator-result.json` report. Android 16, physical radios, SAF picker UI and cold-start performance remain separate verification items.
+
+Next implementation step: extend simulation coverage to the remaining planned protocol and lifecycle cases before claiming broader compatibility; retain the real-product fixture gate for manufacturer modules. The SM-A56B/DS is the phone running Fieldwatch. The owned router export showed TCP 80/443/8080 open, 22 rejected-or-error, WPA2/WPS advertised. Its advertised MF922/7520V3WLAN strings are not verified firmware; service-inspection/firmware evidence and affected/unaffected manufacturer fixtures remain unavailable. M6 product support is incomplete; successful reference simulation does not establish commercial-device vulnerability support.
 
 ## Required phase completion report
 
@@ -81,6 +85,10 @@ M6a suggested message: `feat: add reference device validation and paired lab fix
 M6b prerequisite suggested message: `feat: add encrypted operator handset baselines and compatibility reporting`.
 
 M6 comparison suggested message: `feat: add evidence-linked reference fixture comparisons`.
+
+Simulation setup suggested message: `test: add isolated Android emulator assessment suite and local lab services`.
+
+Existing-device verification suggested message: `test: fix API 37 instrumentation compatibility and record emulator results`.
 
 ## Initial check selection method
 

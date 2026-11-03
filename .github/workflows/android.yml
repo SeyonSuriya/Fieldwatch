@@ -33,7 +33,7 @@ jobs:
         run: ./gradlew testDebugUnitTest --stacktrace
 
       - name: Reference device HTTP fixtures
-        run: python3 -m unittest discover -s scripts/lab -p test_reference_device.py
+        run: python3 -m unittest discover -s scripts/lab -p 'test_*.py'
 
       - name: Upload test report
         if: always()
@@ -72,6 +72,9 @@ jobs:
 
       - name: Test and assemble isolated development APK
         run: ./gradlew testDevelopmentUnitTest assembleDevelopment --stacktrace
+
+      - name: Compile simulation app and instrumented tests
+        run: ./gradlew assembleSimulation assembleSimulationAndroidTest --stacktrace --max-workers=2
 
       - name: Upload APK
         uses: actions/upload-artifact@v4

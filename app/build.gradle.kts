@@ -31,6 +31,7 @@ android {
         versionCode = 36
         versionName = "1.1.26"
         vectorDrawables.useSupportLibrary = true
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     val releaseStore = localProp("FIELDWATCH_STORE_FILE")
@@ -87,7 +88,15 @@ android {
             matchingFallbacks += listOf("debug")
             resValue("string", "app_name", "Fieldwatch Dev")
         }
+        create("simulation") {
+            initWith(getByName("development"))
+            applicationIdSuffix = ".simulation"
+            versionNameSuffix = "-simulation"
+            matchingFallbacks += listOf("development", "debug")
+            resValue("string", "app_name", "Fieldwatch Simulation")
+        }
     }
+    testBuildType = "simulation"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -126,4 +135,11 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // Real org.json on the JVM test classpath; the android.jar bundled JSONObject is a stub.
     testImplementation("org.json:json:20240303")
+    androidTestImplementation(composeBom)
+    androidTestImplementation("androidx.test:runner:1.7.0")
+    androidTestImplementation("androidx.test.ext:junit:1.3.0")
+    // Espresso 3.7 uses the public InputManager API on newer Android runtimes.
+    androidTestImplementation("androidx.test.espresso:espresso-core:3.7.0")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    add("simulationImplementation", "androidx.compose.ui:ui-test-manifest")
 }
