@@ -101,3 +101,18 @@ Extended emulator coverage suggested message: `test: verify lifecycle cancellati
 Document-picker phase suggested message: `test: verify Android document-picker exports and cancellation`. Eight runtime tests pass, including real local Downloads summary/full export, cancellation/retry, frozen-selection behavior and synthetic-file cleanup. Next: interrupted-session recovery and app-restart validation.
 
 Process-restart phase suggested message: `test: verify interrupted assessment recovery across app restarts`. Eleven emulator checks pass (eight standard plus three restart phases); completed records and evidence remain intact, interrupted state is durable, and synthetic fixtures are cleaned up. Next: isolated encrypted-vault failure handling tests.
+
+
+## Functional discovery phase (4 November 2026)
+
+Development now prioritizes functional discovery/validation modules; tests accompany
+each feature rather than becoming further standalone phases. Fieldwatch 1.1.27 adds
+saved-service software identification, a versioned two-advisory Apache catalog,
+evidence-linked suspected candidates, a review/save UI and full-report persistence.
+See [Service discovery](service-discovery.md) for scope and operator workflow.
+
+Suggested message: `feat: add evidence-linked service fingerprinting and advisory candidates`.
+Next functional step: target-specific bounded validation with reproducible vulnerable
+and protected fixtures, before promoting candidates to confirmed vulnerabilities.
+
+Discovery build validation: development APK 1.1.27-dev (code 37) built successfully; all 714 JVM tests passed, including eight discovery tests, with zero failures/skips. New UI runtime verification remains pending; see docs/service-discovery.md.

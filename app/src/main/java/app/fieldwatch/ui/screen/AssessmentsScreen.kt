@@ -38,6 +38,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
     var targetEvidence by remember(selectedId) { mutableStateOf<String?>(null) }
     var checkPreview by remember(selectedId) { mutableStateOf<CheckEvaluation?>(null) }
     var checkError by remember(selectedId) { mutableStateOf<String?>(null) }
+    var discoveryPreview by remember(selectedId) { mutableStateOf<ServiceDiscoveryReport?>(null) }
     var devicePreview by remember(selectedId) { mutableStateOf<DeviceValidationReport?>(null) }
     var operatorPreview by remember(selectedId) { mutableStateOf<HandsetBaseline?>(null) }
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json"), vm::writeReport)
@@ -131,6 +132,10 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                                         .onSuccess { checkPreview = it }.onFailure { checkError = "This evidence cannot be evaluated: ${it.message}" }
                                 }, enabled = editable) { Text("Review versioned checks") }
                                 if (evidence.source == "service-inspection") OutlinedButton(onClick = {
+                                    runCatching { ServiceDiscovery.evaluate(selected, evidence.id, System.currentTimeMillis()) }
+                                        .onSuccess { discoveryPreview = it }.onFailure { checkError = "Service discovery unavailable: ${it.message}" }
+                                }, enabled = editable) { Text("Discover software and advisory candidates") }
+                                if (evidence.source == "service-inspection") OutlinedButton(onClick = {
                                     runCatching { DeviceValidation.evaluate(selected, evidence.id, System.currentTimeMillis()) }
                                         .onSuccess { devicePreview = it }.onFailure { checkError = "Device validation unavailable: ${it.message}" }
                                 }, enabled = editable) { Text("Review reference lab module") }
@@ -150,6 +155,24 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                 }
             }
         }
+    }
+    discoveryPreview?.let { report ->
+        AlertDialog(onDismissRequest = { discoveryPreview = null }, title = { Text("Software and vulnerability candidates") },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                Text("${report.address}:${report.port} | ${report.protocol}")
+                Text("Advertised software: ${report.product ?: "Unknown"} ${report.advertisedVersion.orEmpty()}")
+                Text(report.explanation)
+                report.candidates.forEach { candidate ->
+                    HorizontalDivider()
+                    Text("${candidate.cve} | UNVERIFIED VERSION MATCH", style = MaterialTheme.typography.titleSmall)
+                    Text(candidate.title)
+                    Text(candidate.requirements)
+                    Text("Vendor fix release: ${candidate.vendorFixRelease} | ${candidate.reference}")
+                }
+                Text("Saving adds evidence-linked suspected findings for candidates. No exploit is executed.")
+            } },
+            confirmButton = { TextButton(onClick = { vm.saveServiceDiscovery(report.sourceEvidenceId); discoveryPreview = null }, enabled = !busy) { Text("Save discovery review") } },
+            dismissButton = { TextButton(onClick = { discoveryPreview = null }) { Text("Cancel") } })
     }
     if (notice != null) AlertDialog(onDismissRequest = vm::dismissNotice, title = { Text("Assessment notice") },
         text = { Text(notice.orEmpty()) }, confirmButton = { TextButton(onClick = vm::dismissNotice) { Text("OK") } })

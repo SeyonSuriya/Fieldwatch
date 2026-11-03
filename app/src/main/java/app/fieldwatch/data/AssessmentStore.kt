@@ -173,6 +173,33 @@ class AssessmentStore(
             "service-inspection", json.encodeToString(report), report.startedAt, report.endedAt, catalogVersion)
     }
 
+    suspend fun saveServiceDiscovery(engagementId: String, evidenceId: String): Boolean {
+        var recorded = false
+        edit(engagementId) { engagement ->
+            val report = ServiceDiscovery.evaluate(engagement, evidenceId, now())
+            if (engagement.evidence.filter { it.source == "service-discovery" }.any {
+                val old = json.decodeFromString<ServiceDiscoveryReport>(it.text)
+                old.sourceEvidenceId == evidenceId && old.sourceSha256 == report.sourceSha256 &&
+                    old.version == report.version && old.catalogVersion == report.catalogVersion
+            }) return@edit engagement
+            val run = AssessmentRun(id(), report.assetId, report.evaluatedAt, checkId = "service-discovery",
+                checkVersion = ServiceDiscovery.VERSION, status = AssessmentRunStatus.RECORDED, endedAt = report.evaluatedAt)
+            val body = json.encodeToString(report)
+            val evidence = AssessmentEvidence(id(), report.assetId, run.id, "Service identity and advisory candidates", body,
+                AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), report.evaluatedAt,
+                source = "service-discovery", appVersion = appVersion, catalogVersion = ServiceDiscovery.CATALOG_VERSION)
+            val candidates = report.candidates.map { candidate -> AssessmentFinding(
+                id(), report.assetId, "Unverified candidate: ${candidate.cve}",
+                "${candidate.title}. Advertised ${report.product} ${report.advertisedVersion}. ${candidate.requirements} Vendor notice: ${candidate.reference}. No exploit or access validation was performed.",
+                FindingSeverity.HIGH, FindingConfidence.SUSPECTED, listOf(evidenceId, evidence.id), report.evaluatedAt,
+                checkId = candidate.cve, checkVersion = ServiceDiscovery.CATALOG_VERSION)
+            }
+            recorded = true
+            engagement.copy(runs = engagement.runs + run, evidence = engagement.evidence + evidence, findings = engagement.findings + candidates)
+        }
+        return recorded
+    }
+
     suspend fun saveWifiSecurity(engagementId: String, report: WifiSecurityReport, catalogVersion: Int) {
         report.validate()
         saveStructuredSnapshot(engagementId, report.bssid.uppercase(), report.ssid.ifBlank { report.bssid }.take(100), AssessmentTransport.WIFI,

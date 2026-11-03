@@ -75,6 +75,12 @@ class AssessmentViewModel(application: Application) : AndroidViewModel(applicati
             else "This source/version already has a saved reference validation; no duplicate was added."
     }
 
+    fun saveServiceDiscovery(evidenceId: String) = action {
+        val recorded = store.saveServiceDiscovery(selectedId(), evidenceId)
+        mutableNotice.value = if (recorded) "Service identity review saved. Version matches are suspected candidates; exploitability and access remain unverified."
+            else "This source and discovery catalog version were already reviewed."
+    }
+
     fun saveOperatorBaseline(baseline: HandsetBaseline) = action {
         store.saveOperatorBaseline(selectedId(), baseline)
         mutableNotice.value = "This phone's operator baseline was saved encrypted. It is not a remote-target profile or a verified capability/vulnerability result."
