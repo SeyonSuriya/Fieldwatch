@@ -122,6 +122,75 @@ class SimulationAssessmentTest {
         } finally { client.close() }
     }
 
+    @Test fun documentPickerCancellationThenSummaryExport() = withExportEngagement { vm, snapshot, picker ->
+        compose.onNodeWithText("Export summary").performScrollTo().performClick()
+        compose.waitUntil(15000) { !vm.busy.value }
+        compose.waitForIdle()
+        picker.awaitOpen()
+        val cancelledName = picker.setUniqueName()
+        picker.cancel()
+        compose.waitUntil(15000) { !vm.busy.value }
+        assertNull(vm.notice.value)
+        assertFalse(picker.exists(cancelledName))
+        assertEquals(snapshot, vm.archive.value.engagements.single { it.id == snapshot.id })
+
+        // A real cancellation result must clear the pending report and permit a new export.
+        compose.onNodeWithText("Export summary").performScrollTo().performClick()
+        compose.waitUntil(15000) { !vm.busy.value }
+        compose.waitForIdle()
+        picker.awaitOpen()
+        val name = picker.setUniqueName()
+        picker.save()
+        compose.waitUntil(15000) { vm.notice.value?.startsWith("Report exported.") == true && !vm.busy.value }
+        val text = picker.read(name)
+        val report = Json.decodeFromString<AssessmentReport>(text)
+        assertNull(report.engagement)
+        assertNotNull(report.summary)
+        assertEquals(1, report.summary!!.operatorBaselineCount)
+        assertFalse(text.contains(snapshot.name))
+        assertFalse(text.contains(snapshot.scope))
+        assertFalse(text.contains(snapshot.id))
+    }
+
+    @Test fun documentPickerFullExportUsesFrozenEngagement() = withExportEngagement { vm, snapshot, picker ->
+        compose.onNodeWithText("Export full report").performScrollTo().performClick()
+        compose.onNodeWithText("Export full report?").assertIsDisplayed()
+        compose.onNodeWithText("Export", useUnmergedTree = true).performClick()
+        compose.waitUntil(15000) { !vm.busy.value }
+        compose.waitForIdle()
+        picker.awaitOpen()
+        val name = picker.setUniqueName()
+        // Changing selection while the picker is open must not redirect a frozen report.
+        InstrumentationRegistry.getInstrumentation().runOnMainSync { vm.select(null) }
+        picker.save()
+        compose.waitUntil(15000) { vm.notice.value?.startsWith("Report exported.") == true && !vm.busy.value }
+        val report = Json.decodeFromString<AssessmentReport>(picker.read(name))
+        assertEquals(snapshot, report.engagement)
+        assertNull(report.summary)
+    }
+
+    private fun withExportEngagement(test: (AssessmentViewModel, AssessmentEngagement, SimulationDocumentPicker) -> Unit) {
+        val app = context.applicationContext as FieldwatchApp
+        val vm = AssessmentViewModel(app)
+        val picker = SimulationDocumentPicker()
+        var id: String? = null
+        try {
+            picker.use {
+                compose.waitUntil(15000) { vm.ready.value && !vm.busy.value }
+                id = runBlocking {
+                    app.assessments.create("Synthetic export ${UUID.randomUUID()}", "Synthetic private scope ${UUID.randomUUID()}")
+                }
+                runBlocking { app.assessments.saveOperatorBaseline(id, HandsetBaselineCollector.capture(context)) }
+                val snapshot = app.assessments.archive.value.engagements.single { it.id == id }
+                compose.runOnIdle { vm.select(id) }
+                compose.setContent { MaterialTheme { AssessmentsScreen(onBack = {}, onInventory = {}, onNetwork = {}, vm = vm) } }
+                test(vm, snapshot, picker)
+            }
+        } finally {
+            if (id != null) runBlocking { app.assessments.delete(id) }
+        }
+    }
+
     @Test fun backgroundingNetworkScreenCancelsInspection() {
         val app = context.applicationContext as FieldwatchApp
         val vm = NetworkAssessmentViewModel(app)

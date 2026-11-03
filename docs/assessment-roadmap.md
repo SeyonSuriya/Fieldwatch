@@ -97,3 +97,5 @@ Use [CISA's Known Exploited Vulnerabilities catalog](https://www.cisa.gov/known-
 The initial candidate areas are exposed management interfaces, missing service authorization, sensitive-data disclosure, insecure transport, and identifiable outdated router/camera/IoT services. BLE/Classic checks should focus first on observable service permissions and supported application protocols. Select individual CVEs only after confirming phone feasibility, affected-version identification, and vulnerable/fixed fixtures. Do not describe this candidate list as a measured ranking of the most exploited vulnerabilities.
 
 Extended emulator coverage suggested message: `test: verify lifecycle cancellation and simulated Bluetooth sessions on Android`. Six runtime tests and seven host fixture tests pass; system document-picker coverage is next.
+
+Document-picker phase suggested message: `test: verify Android document-picker exports and cancellation`. Eight runtime tests pass, including real local Downloads summary/full export, cancellation/retry, frozen-selection behavior and synthetic-file cleanup. Next: interrupted-session recovery and app-restart validation.

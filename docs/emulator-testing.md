@@ -68,7 +68,7 @@ The instrumentation suite checks:
 
 The storage test uses a unique simulation-only directory and Keystore alias, which it cleans up after itself. UI testing uses only the simulation package's engagement store. No unique phone identifiers, real device credentials or router data are used.
 
-Report generation/app-private file testing does not exercise the system document picker/SAF provider UI. Permission prompts, real process death, OEM behavior, physical Wi-Fi/Bluetooth discovery, pairing, radio coexistence, root/external-radio capabilities and manufacturer-specific vulnerability fixtures remain separate tests. Emulator Bluetooth functionality varies by runtime/image; this initial suite makes no Bluetooth interoperability claim.
+The initial four-test report-generation/app-private file coverage did not exercise the system document picker/SAF provider UI; the export phase below adds that coverage. Permission prompts, real process death, OEM behavior, physical Wi-Fi/Bluetooth discovery, pairing, radio coexistence, root/external-radio capabilities and manufacturer-specific vulnerability fixtures remain separate tests. Emulator Bluetooth functionality varies by runtime/image; this initial suite makes no Bluetooth interoperability claim.
 
 ## Outputs and troubleshooting
 
@@ -94,7 +94,7 @@ Primary references: [Android instrumented tests](https://developer.android.com/t
 
 ## Extended lifecycle and Bluetooth controller coverage
 
-The suite now declares six tests. The two added scenarios exercise the actual network
+The lifecycle/Bluetooth phase declared six tests. The two added scenarios exercise the actual network
 screen ON_STOP observer while a synthetic HEAD response is pending, and a fake
 Bluetooth transport on the Android runtime. Bluetooth assertions cover rejection of
 a write to a read-only characteristic, authentication-error handling, stale BLE
@@ -103,10 +103,9 @@ No Bluetooth radio, pairing, GATT platform implementation or RFCOMM socket is ex
 by the fake transport. The lifecycle test checks that stopping the screen produces no
 completed service report or persisted evidence.
 
-The runner requires exactly six passing tests and rejects failures/skips. The earlier
+That phase required exactly six passing tests and rejected failures/skips. The earlier
 four-test result above describes the earlier APKs only. Extended-suite execution is
-recorded separately below after validation. System document-picker UI coverage remains
-pending; app-private export generation is already covered.
+recorded separately below after validation. System document-picker UI coverage was pending at that phase; see the export phase below.
 
 
 Extended-suite validation, 3 November 2026: test APK compilation passed (1m 27s),
@@ -122,3 +121,51 @@ failure, ignored and assumption-failure markers still reject the run, while that
 test name does not. The full suite was rerun successfully after this correction.
 Production app behavior and physical-radio verification are unchanged. Next step:
 system document-picker export and cancellation tests using synthetic reports.
+
+
+## System document-picker export phase
+
+The suite now declares eight tests. Two new tests use the production assessment
+screen and its real CreateDocument launcher, callback and ContentResolver write.
+A test-only driver uses Android UiAutomation accessibility actions to edit the
+filename and activate Save or Back. It requires the observed local Downloads
+location and system DocumentsUI package; other destinations fail explicitly.
+No storage permission, production test hook or cloud account is added.
+
+The summary scenario cancels the actual picker, verifies no file was created and
+no engagement changed, retries, and checks the exported JSON omits the synthetic
+engagement name, scope and ID while retaining the baseline count. The full-report
+scenario uses the confirmation dialog, changes selection while the picker is open,
+and checks the original frozen engagement was exported in full.
+
+Each filename has a unique fieldwatch-simulation UUID. Shell access inside the
+emulator independently reads only those known synthetic exports to verify the app's
+SAF write and removes those same files during cleanup; this is not a claim that the
+app has general filesystem access. Cleanup verifies the named test files are gone.
+These tests do not cover cloud providers, OEM pickers, process death or radio hardware.
+The runner requires exactly eight successful tests and zero skipped tests.
+
+API references: [UiAutomation](https://developer.android.com/reference/android/app/UiAutomation)
+and [AccessibilityNodeInfo](https://developer.android.com/reference/android/view/accessibility/AccessibilityNodeInfo).
+
+
+Validation, **4 November 2026 (Asia/Colombo)**: simulation test APK compiled
+successfully; the complete eight-test suite passed on the existing Pixel_10
+Android 17/API 37 emulator, with zero failures/skips,
+in 110.942 seconds of instrumentation time. The helper exited successfully and
+recorded `PASSED` at `2026-11-03T18:54:27.4419462+00:00` (UTC).
+Test APK SHA-256: `0e807df97474d6b7a3b3c59ed2ad4bc5e86eb910feec65223d353902d4297ba0`.
+Simulation app SHA-256: `4f657787e3d282c2a791d356198e42277e9ded92c21425d5466c11433def45f1`.
+
+Both new export tests passed, including synthetic-file cleanup. Production sources
+and APK behavior were unchanged. Early attempts exposed test-driver synchronization,
+Back-event injection and shell-expression issues; those failed attempts are retained
+in `.gradle/emulator-instrumentation-picker-sync-failure.log` and
+`.gradle/emulator-instrumentation-picker-driver-failure.log`. Compose actions now
+finish before system-UI polling, Back uses the accessibility global action, and
+file checks use a direct command. Cleanup preserves the original failure and still
+removes the test engagement if picker cleanup fails.
+
+Next validation step: interrupted-session recovery and app-restart behavior on the
+emulator. Physical-radio, OEM picker and manufacturer-device verification remain
+separate from these simulated results.
