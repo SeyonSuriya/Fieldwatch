@@ -16,6 +16,7 @@ object HttpEvidence {
         val status = Regex("HTTP/1\\.[01] ([1-5][0-9]{2})(?: [\\x20-\\x7e]*)?").matchEntire(lines.first())?.groupValues?.get(1)?.toInt() ?: return null
         if (status < 200) return null
         val headers = lines.drop(1).map { line ->
+            if ('\r' in line || '\n' in line) return null
             val split = line.indexOf(':')
             if (split <= 0 || !line.substring(0, split).matches(Regex("[!#$%&'*+.^_`|~0-9A-Za-z-]+"))) return null
             line.substring(0, split).lowercase() to line.substring(split + 1).trim(' ', '\t')

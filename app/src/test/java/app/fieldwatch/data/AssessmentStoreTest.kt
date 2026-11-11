@@ -5,6 +5,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -218,7 +220,8 @@ class AssessmentStoreTest {
     }
 
     @Test fun cleartextEvaluationConfirmsOnlyTheTransportCondition() = runBlocking {
-        val store = store(File(temp.newFolder(), "vault.bin"))
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
         store.load()
         val engagement = store.create("Lab", "Authorized lab")
         store.saveServiceReport(engagement, serviceReport().copy(attemptedRequestHex = ServiceInspection.hex(ServiceInspection.request("192.168.1.1", 80))), 94)
@@ -228,6 +231,26 @@ class AssessmentStoreTest {
         assertEquals("http-cleartext", saved.findings.single().checkId)
         assertEquals(FindingConfidence.CONFIRMED, saved.findings.single().confidence)
         assertTrue(saved.access.isEmpty())
+
+        // Recreate the previous registry's saved evaluation while retaining its finding.
+        val currentEvidence = saved.evidence.single { it.source == "versioned-check-evaluation" }
+        val current = Json.decodeFromString<CheckEvaluation>(currentEvidence.text)
+        val priorBody = Json.encodeToString(current.copy(registryVersion = 1, httpAccess = null,
+            results = current.results.filterNot { it.checkId == "https-redirect-to-http" }))
+        val priorEvidence = currentEvidence.copy(text = priorBody, sha256 = AssessmentRules.sha256(priorBody.toByteArray()))
+        val prior = saved.copy(
+            evidence = saved.evidence.map { if (it.id == priorEvidence.id) priorEvidence else it },
+            runs = saved.runs.map { if (it.id == priorEvidence.runId) it.copy(checkVersion = 1) else it },
+        )
+        val priorBytes = Json.encodeToString(store.archive.value.copy(engagements = listOf(prior))).toByteArray()
+        file.writeBytes(AesGcmAssessmentCipher { key }.encrypt(priorBytes))
+        val reopened = store(file)
+        reopened.load()
+        assertEquals(0, reopened.evaluateEvidence(engagement, source.id, 94))
+        val updated = reopened.archive.value.engagements.single()
+        assertEquals(saved.findings, updated.findings)
+        assertEquals(listOf(1, 2), updated.evidence.filter { it.source == "versioned-check-evaluation" }
+            .map { Json.decodeFromString<CheckEvaluation>(it.text).registryVersion })
     }
 
     @Test fun inconclusiveChecksAreSavedWithoutFindings() = runBlocking {

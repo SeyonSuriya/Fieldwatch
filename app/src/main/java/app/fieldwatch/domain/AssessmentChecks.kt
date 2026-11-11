@@ -1,5 +1,7 @@
 package app.fieldwatch.domain
 
+import java.net.URI
+import java.net.URISyntaxException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -13,6 +15,12 @@ data class CheckDefinition(val id: String, val title: String, val severity: Find
     val remediation: String, val references: List<String>, val version: Int = 1)
 
 @Serializable
+data class HttpAccessObservation(
+    val status: Int,
+    val interpretation: String,
+)
+
+@Serializable
 data class CheckEvaluation(
     val format: String = "fieldwatch-check-evaluation",
     val formatVersion: Int = 1,
@@ -22,11 +30,12 @@ data class CheckEvaluation(
     val assetId: String,
     val evaluatedAt: Long,
     val results: List<CheckResult>,
+    val httpAccess: HttpAccessObservation? = null,
 )
 
 /** Offline interpretation of saved observations. No network or exploitation side effects. */
 object AssessmentChecks {
-    const val VERSION = 1
+    const val VERSION = 2
     private val json = Json
     private const val TLS_REF = "https://www.rfc-editor.org/rfc/rfc8996"
     private const val WIFI_REF = "https://csrc.nist.gov/pubs/sp/800/153/final"
@@ -43,6 +52,8 @@ object AssessmentChecks {
             "Prefer HTTPS and review whether this cleartext endpoint is needed. No sensitive content or credentials were tested.", listOf("https://www.rfc-editor.org/rfc/rfc9110#section-17.1")),
         CheckDefinition("http-basic-cleartext", "Basic authentication challenge on cleartext HTTP", FindingSeverity.MEDIUM, FindingConfidence.SUSPECTED,
             "Require HTTPS before offering authentication. No credentials were submitted; credential acceptance remains untested.", listOf("https://www.rfc-editor.org/rfc/rfc7617#section-4")),
+        CheckDefinition("https-redirect-to-http", "HTTPS response redirects to cleartext HTTP", FindingSeverity.MEDIUM, FindingConfidence.CONFIRMED,
+            "Keep redirect destinations on HTTPS and review the intended destination.", listOf("https://www.rfc-editor.org/rfc/rfc9110#section-15.4")),
         CheckDefinition("tls-legacy", "Deprecated TLS version negotiated", FindingSeverity.MEDIUM, FindingConfidence.CONFIRMED,
             "Disable TLS 1.0/1.1 and use supported TLS 1.2/1.3 configurations. This check does not enumerate all supported versions.", listOf(TLS_REF)),
         CheckDefinition("ssh-v1", "SSH version 1 banner advertised", FindingSeverity.MEDIUM, FindingConfidence.SUSPECTED,
@@ -57,6 +68,7 @@ object AssessmentChecks {
         require(evidence.text.toByteArray().size <= AssessmentRules.MAX_NOTE_BYTES && AssessmentRules.sha256(evidence.text.toByteArray()) == evidence.sha256)
         val asset = engagement.assets.single { it.id == evidence.assetId }
         require(engagement.runs.any { it.id == evidence.runId && it.assetId == asset.id && it.status == AssessmentRunStatus.RECORDED })
+        var httpAccess: HttpAccessObservation? = null
         val results = when (evidence.source) {
             "wifi-security-advertisement" -> {
                 val report = json.decodeFromString<WifiSecurityReport>(evidence.text).also { it.validate() }
@@ -66,11 +78,14 @@ object AssessmentChecks {
             else -> {
                 val report = json.decodeFromString<ServiceInspectionReport>(evidence.text).also { it.validate() }
                 require(asset.transport == AssessmentTransport.NETWORK && asset.identifier == report.address) { "Service evidence target mismatch." }
-                service(report)
+                val parsed = HttpEvidence.read(report)
+                httpAccess = parsed?.let(::accessObservation)
+                service(report, parsed)
             }
         }
         require(now > 0)
-        return CheckEvaluation(sourceEvidenceId = evidence.id, sourceSha256 = evidence.sha256, assetId = asset.id, evaluatedAt = now, results = results)
+        return CheckEvaluation(registryVersion = VERSION, sourceEvidenceId = evidence.id, sourceSha256 = evidence.sha256,
+            assetId = asset.id, evaluatedAt = now, results = results, httpAccess = httpAccess)
     }
 
     private fun result(id: String, outcome: CheckOutcome, text: String) = CheckResult(id, checkVersion = definition(id).version, outcome = outcome, explanation = text)
@@ -99,11 +114,39 @@ object AssessmentChecks {
                 else "No WPS exploitability assessment was performed."))
     }
 
-    private fun http(report: ServiceInspectionReport): Pair<Int, List<Pair<String, String>>>? =
-        HttpEvidence.read(report)?.let { it.status to it.headers }
+    private val redirects = setOf(301, 302, 303, 307, 308)
 
-    private fun service(report: ServiceInspectionReport): List<CheckResult> {
-        val parsed = http(report)
+    private fun accessObservation(response: ParsedHttpEvidence): HttpAccessObservation {
+        val interpretation = when (response.status) {
+            401 -> if (response.headers.any { (name, value) -> name == "www-authenticate" && value.isNotBlank() }) {
+                "HEAD / received HTTP 401 with a WWW-Authenticate header."
+            } else {
+                "HEAD / received HTTP 401 without a nonempty WWW-Authenticate header."
+            }
+            403 -> "The server refused HEAD /. The reason and policies for other paths are unknown."
+            in redirects -> "The server redirected HEAD /. The destination was not visited."
+            in 200..299 -> "HEAD / succeeded without credentials. Authorization for content and other paths remains unknown."
+            else -> "The server responded to HEAD /. Authorization remains unknown."
+        }
+        return HttpAccessObservation(response.status, interpretation)
+    }
+
+    private fun redirectDowngrade(probe: ServiceProbe, response: ParsedHttpEvidence?): CheckOutcome {
+        if (probe != ServiceProbe.HTTPS_HEAD) return CheckOutcome.NOT_APPLICABLE
+        if (response == null) return CheckOutcome.INCONCLUSIVE
+        if (response.status !in redirects) return CheckOutcome.NOT_OBSERVED
+        val location = response.headers.filter { it.first == "location" }.singleOrNull()?.second
+        if (location.isNullOrBlank()) return CheckOutcome.INCONCLUSIVE
+        val destination = try { URI(location) } catch (_: URISyntaxException) { return CheckOutcome.INCONCLUSIVE }
+        return when (destination.scheme?.lowercase()) {
+            null -> CheckOutcome.NOT_OBSERVED
+            "http" -> if (destination.host != null) CheckOutcome.CONDITION_OBSERVED else CheckOutcome.INCONCLUSIVE
+            "https" -> if (destination.host != null) CheckOutcome.NOT_OBSERVED else CheckOutcome.INCONCLUSIVE
+            else -> CheckOutcome.INCONCLUSIVE
+        }
+    }
+
+    private fun service(report: ServiceInspectionReport, parsed: ParsedHttpEvidence?): List<CheckResult> {
         val isHttp = report.probe in setOf(ServiceProbe.HTTP_HEAD, ServiceProbe.HTTPS_HEAD)
         val clear = report.probe == ServiceProbe.HTTP_HEAD
         fun httpOutcome(observed: Boolean) = when {
@@ -113,17 +156,23 @@ object AssessmentChecks {
             else -> CheckOutcome.NOT_OBSERVED
         }
         // Deliberately accepts only Basic as the first challenge in a field. Complex lists stay unclassified.
-        val basic = parsed?.first == 401 && parsed.second.any { (name, value) -> name == "www-authenticate" && Regex("(?i)^Basic[ \\t]+realm=\"[^\"\\\\]*\"(?:[ \\t]*,.*)?$").matches(value) }
+        val basic = parsed?.status == 401 && parsed.headers.any { (name, value) -> name == "www-authenticate" && Regex("(?i)^Basic[ \\t]+realm=\"[^\"\\\\]*\"(?:[ \\t]*,.*)?$").matches(value) }
+        val downgrade = redirectDowngrade(report.probe, parsed)
         val tls = report.probe in setOf(ServiceProbe.TLS, ServiceProbe.HTTPS_HEAD)
         val legacyTls = report.tlsProtocol in setOf("TLSv1", "TLSv1.0", "TLSv1.1")
         val banner = ServiceInspection.bytes(report.receivedHex).toString(Charsets.ISO_8859_1)
         val sshV1 = Regex("^SSH-1\\.(?!99-)[0-9]+-[^\\r\\n]+\\r?\\n$").matches(banner)
         val sshV2 = Regex("^SSH-(?:1\\.99|2\\.0)-[^\\r\\n]+\\r?\\n$").matches(banner)
         return listOf(
-            result("http-cleartext", httpOutcome(clear), if (parsed != null && clear) "A complete HTTP ${parsed.first} header response to HEAD / was captured over cleartext TCP. No sensitive data or login was tested."
+            result("http-cleartext", httpOutcome(clear), if (parsed != null && clear) "A complete HTTP ${parsed.status} header response to HEAD / was captured over cleartext TCP. No sensitive data or login was tested."
                 else "A complete applicable cleartext HTTP exchange was not established; this does not establish that the endpoint requires HTTPS."),
             result("http-basic-cleartext", httpOutcome(clear && basic), if (clear && basic) "HTTP 401 advertises a Basic realm on cleartext TCP. Credential submission/acceptance was not tested."
                 else "No qualifying cleartext Basic challenge was established. Unrecognized or combined challenge syntax may be unclassified."),
+            result("https-redirect-to-http", downgrade, when (downgrade) {
+                CheckOutcome.CONDITION_OBSERVED -> "The verified HTTPS response advertised a cleartext HTTP redirect. The destination was not visited."
+                CheckOutcome.INCONCLUSIVE -> "The response or redirect destination could not be interpreted."
+                else -> "No HTTPS-to-HTTP redirect was observed in this capture."
+            }),
             result("tls-legacy", when {
                 !tls -> CheckOutcome.NOT_APPLICABLE
                 report.tlsProtocol == null -> CheckOutcome.INCONCLUSIVE

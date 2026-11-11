@@ -257,7 +257,11 @@ class AssessmentStore(
             val evidence = AssessmentEvidence(id(), evaluation.assetId, run.id, "Versioned observation checks", body,
                 AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), evaluation.evaluatedAt,
                 source = "versioned-check-evaluation", appVersion = appVersion, catalogVersion = catalogVersion)
-            val findings = evaluation.results.filter { it.outcome == CheckOutcome.CONDITION_OBSERVED }.map { result ->
+            val priorChecks = engagement.findings.filter { evidenceId in it.evidenceIds }
+                .map { it.checkId to it.checkVersion }.toSet()
+            val findings = evaluation.results.filter {
+                it.outcome == CheckOutcome.CONDITION_OBSERVED && (it.checkId to it.checkVersion) !in priorChecks
+            }.map { result ->
                 val check = AssessmentChecks.definition(result.checkId)
                 AssessmentFinding(id(), evaluation.assetId, check.title,
                     "${result.explanation}\nRecommended action: ${check.remediation}\nReferences: ${check.references.joinToString()}\nBased only on the saved observation; not a CVE, exploitation or access verdict.",

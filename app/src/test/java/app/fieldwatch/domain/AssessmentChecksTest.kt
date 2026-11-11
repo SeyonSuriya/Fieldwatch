@@ -27,8 +27,8 @@ class AssessmentChecksTest {
     private fun rejected(action: () -> Unit) { try { action(); fail("Expected rejection") } catch (_: IllegalArgumentException) { } }
 
     @Test fun registryIdentifiersAreUniqueAndVersioned() {
-        assertEquals(8, AssessmentChecks.definitions.size)
-        assertEquals(8, AssessmentChecks.definitions.map { it.id }.distinct().size)
+        assertEquals(AssessmentChecks.definitions.size, AssessmentChecks.definitions.map { it.id }.distinct().size)
+        assertEquals(2, wifi("[ESS]").registryVersion)
         assertTrue(wifi("[ESS]").results.all { it.checkVersion == 1 })
     }
     @Test fun legacyFindingJsonWithoutCheckMetadataRemainsReadable() {
@@ -114,6 +114,31 @@ class AssessmentChecksTest {
     @Test fun productVersionAndStatus200DoNotProveCveOrMissingAuthorization() {
         val evaluation = evaluate(serviceReport("HTTP/1.1 200 OK\r\nServer: OldCam/1.0\r\n\r\n"))
         assertEquals(listOf("http-cleartext"), evaluation.results.filter { it.outcome == CheckOutcome.CONDITION_OBSERVED }.map { it.checkId })
+        val observation = requireNotNull(evaluation.httpAccess)
+        assertEquals(200, observation.status)
+        assertTrue(observation.interpretation.contains("remains unknown"))
+    }
+
+    @Test fun accessReviewDistinguishesChallengeRefusalAndMalformedHeaders() {
+        val challenged = evaluate(serviceReport("HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Digest realm=\"Lab\"\r\n\r\n"))
+        val denied = evaluate(serviceReport("HTTP/1.1 403 Forbidden\r\n\r\n"))
+        assertTrue(challenged.httpAccess!!.interpretation.contains("with a WWW-Authenticate"))
+        assertTrue(denied.httpAccess!!.interpretation.contains("refused"))
+        assertNull(evaluate(serviceReport("HTTP/1.1 401 Unauthorized\r\nX: a\nWWW-Authenticate: Basic\r\n\r\n")).httpAccess)
+    }
+
+    @Test fun downgradeRequiresVerifiedHttpsAndOneValidRedirectDestination() {
+        fun check(headers: String, tls: Boolean = true): CheckOutcome {
+            val report = serviceReport("HTTP/1.1 302 Found\r\n$headers\r\n\r\n", ServiceProbe.HTTPS_HEAD)
+            val verified = if (tls) report.copy(tlsProtocol = "TLSv1.3", tlsCipher = "TLS_AES_128_GCM_SHA256",
+                certificateSha256 = "a".repeat(64)) else report
+            return evaluate(verified).outcome("https-redirect-to-http")
+        }
+        assertEquals(CheckOutcome.CONDITION_OBSERVED, check("Location: http://192.168.1.2/login"))
+        assertEquals(CheckOutcome.NOT_OBSERVED, check("Location: /login"))
+        assertEquals(CheckOutcome.INCONCLUSIVE, check("Location: http:/login"))
+        assertEquals(CheckOutcome.INCONCLUSIVE, check("Location: http://192.168.1.2/login", tls = false))
+        assertEquals(CheckOutcome.INCONCLUSIVE, check("Location: http://192.168.1.2/login\r\nLocation: /other"))
     }
     @Test fun targetMismatchAndDigestTamperingAreRejected() {
         val report = serviceReport("HTTP/1.1 200 OK\r\n\r\n")

@@ -194,14 +194,17 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
         dismissButton = { TextButton(onClick = { operatorPreview = null }) { Text("Cancel") } }) }
     checkPreview?.let { preview -> AlertDialog(onDismissRequest = { checkPreview = null }, title = { Text("Saved-observation checks v${preview.registryVersion}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("Offline review only. No target traffic, credential attempts or exploitation. Not observed is not a security pass; confirmed applies only to the narrow recorded condition.")
+            preview.httpAccess?.let { observation ->
+                Text("HTTP ${observation.status} on HEAD /", style = MaterialTheme.typography.titleSmall)
+                Text(observation.interpretation)
+            }
             preview.results.forEach { result ->
                 val check = AssessmentChecks.definition(result.checkId)
                 Text("${check.title} · ${result.outcome}", style = MaterialTheme.typography.titleSmall)
                 Text(result.explanation)
                 if (result.outcome == CheckOutcome.CONDITION_OBSERVED) Text("${check.severity} · ${check.confidence}\n${check.remediation}")
             }
-            Text("Saving records every result and creates findings only for observed conditions. Raw evidence and evaluation are linked; no access record is created.")
+            Text("Saving links this review to the inspection and records new findings for observed conditions.")
         } },
         confirmButton = { TextButton(onClick = { vm.evaluateEvidence(preview.sourceEvidenceId); checkPreview = null }, enabled = !busy) { Text("Save check results") } },
         dismissButton = { TextButton(onClick = { checkPreview = null }) { Text("Cancel") } }) }
