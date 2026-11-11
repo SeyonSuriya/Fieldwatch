@@ -287,6 +287,39 @@ class AssessmentStoreTest {
         assertTrue(saved.access.isEmpty())
     }
 
+    @Test fun certificateHistoryComparesCapturesOnlyWithinTheSameEndpointAndTlsContext() = runBlocking {
+        val store = store(File(temp.newFolder(), "vault.bin"))
+        store.load()
+        val engagement = store.create("Lab", "Authorized fixtures")
+        val base = serviceReport().copy(probe = ServiceProbe.TLS, outcome = "observed", receivedHex = "",
+            tlsProtocol = "TLSv1.2", tlsCipher = "TEST_CIPHER", certificateSha256 = "a".repeat(64))
+        val latest = base.copy(startedAt = 29, endedAt = 30, certificateSha256 = "b".repeat(64))
+        val repeated = base.copy(startedAt = 24, endedAt = 25)
+        // Deliberately save out of capture order.
+        listOf(latest, base, repeated,
+            latest.copy(network = "Other Wi-Fi", certificateSha256 = "c".repeat(64)),
+            latest.copy(tlsProtocol = "TLSv1.3", certificateSha256 = "c".repeat(64)),
+            latest.copy(probe = ServiceProbe.HTTPS_HEAD, certificateSha256 = "c".repeat(64)),
+            latest.copy(port = 443, certificateSha256 = "c".repeat(64)),
+            latest.copy(startedAt = 39, endedAt = 40, outcome = "tls-validation-or-handshake-failed",
+                tlsProtocol = null, tlsCipher = null, certificateSha256 = null)).forEach {
+            store.saveServiceReport(engagement, it, 94)
+        }
+        val saved = store.archive.value.engagements.single()
+        val ports = AssessmentCoverage.summarize(saved).single().services.associateBy { it.port }
+        val histories = ports.getValue(80).certificateHistories
+        assertEquals(4, histories.size)
+        val group = histories.single { it.captureCount == 3 }
+        val change = group.changes.single()
+        assertEquals(saved.evidence[2].id, change.previous.evidenceId)
+        assertEquals(saved.evidence.first().id, change.current.evidenceId)
+        assertEquals("a".repeat(64), change.previous.sha256)
+        assertEquals("b".repeat(64), change.current.sha256)
+        assertEquals(30L, group.latest.endedAt)
+        assertTrue(histories.filter { it != group }.all { it.changes.isEmpty() })
+        assertTrue(ports.getValue(443).certificateHistories.single().changes.isEmpty())
+    }
+
     @Test fun coverageDistinguishesTcpResultsCapturesAndReviewsOfEachSource() = runBlocking {
         val store = store(File(temp.newFolder(), "vault.bin"))
         store.load()

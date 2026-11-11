@@ -10,12 +10,30 @@ data class CoverageInspection(
     val advertisedLabel: String?,
 )
 
+data class CertificateCapture(
+    val evidenceId: String,
+    val network: String,
+    val probe: ServiceProbe,
+    val protocol: String,
+    val endedAt: Long,
+    val sha256: String,
+)
+
+data class CertificateChange(val previous: CertificateCapture, val current: CertificateCapture)
+
+data class CertificateHistory(
+    val latest: CertificateCapture,
+    val captureCount: Int,
+    val changes: List<CertificateChange>,
+)
+
 data class ServiceCoverage(
     val port: Int,
     val latestTcp: TcpObservation? = null,
     val latestTcpEvidenceId: String? = null,
     val latestInspection: CoverageInspection? = null,
     val capturedResponses: Int = 0,
+    val certificateHistories: List<CertificateHistory> = emptyList(),
 )
 
 data class PendingEvidenceReview(
@@ -51,6 +69,7 @@ object AssessmentCoverage {
                 }?.let { it.sourceEvidenceId to it.sourceSha256 }
             }.toSet()
             val services = mutableMapOf<Int, ServiceCoverage>()
+            val certificates = mutableMapOf<Int, MutableList<CertificateCapture>>()
             var unreadable = 0
             for (row in evidence) {
                 when (row.source) {
@@ -91,6 +110,11 @@ object AssessmentCoverage {
                             (report.receivedHex.isNotEmpty() || report.tlsProtocol != null)
                         services[report.port] = service.copy(latestInspection = latest,
                             capturedResponses = service.capturedResponses + if (captured) 1 else 0)
+                        if (report.tlsProtocol != null && report.certificateSha256 != null &&
+                            report.outcome != "tls-validation-or-handshake-failed") {
+                            certificates.getOrPut(report.port) { mutableListOf() } += CertificateCapture(
+                                row.id, report.network, report.probe, report.tlsProtocol, report.endedAt, report.certificateSha256)
+                        }
                     }
                 }
             }
@@ -100,7 +124,18 @@ object AssessmentCoverage {
                 val discovery = row.source == "service-inspection" && identity !in discovered
                 if (checks || discovery) PendingEvidenceReview(row.id, row.title, checks, discovery) else null
             }
-            TargetCoverage(asset, evidence.size, services.values.sortedBy { it.port }, pending, unreadable)
+            val coveredServices = services.values.sortedBy { it.port }.map { service ->
+                val histories = certificates[service.port].orEmpty()
+                    .groupBy { Triple(it.network, it.probe, it.protocol) }.values.map { captures ->
+                        val ordered = captures.sortedBy { it.endedAt }
+                        val changes = ordered.zipWithNext { before, after ->
+                            CertificateChange(before, after).takeIf { before.sha256 != after.sha256 }
+                        }.filterNotNull()
+                        CertificateHistory(ordered.last(), ordered.size, changes)
+                    }.sortedByDescending { it.latest.endedAt }
+                service.copy(certificateHistories = histories)
+            }
+            TargetCoverage(asset, evidence.size, coveredServices, pending, unreadable)
         }
     }
 

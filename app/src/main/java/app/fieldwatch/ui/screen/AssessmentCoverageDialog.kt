@@ -46,21 +46,61 @@ internal fun AssessmentCoverageDialog(
     }
     var targetId by remember(engagement.id) { mutableStateOf<String?>(null) }
     val target = coverage?.firstOrNull { it.asset.id == targetId }
+    var certificatePort by remember(targetId) { mutableStateOf<Int?>(null) }
+    val certificateService = target?.services?.firstOrNull { it.port == certificatePort }
     val overviewScroll = rememberLazyListState()
     val detailScroll = key(targetId) { rememberLazyListState() }
-    val back = { if (targetId == null) onDismiss() else targetId = null }
+    val certificateScroll = key(targetId, certificatePort) { rememberLazyListState() }
+    val back = {
+        when {
+            certificatePort != null -> certificatePort = null
+            targetId != null -> targetId = null
+            else -> onDismiss()
+        }
+    }
     AlertDialog(
         onDismissRequest = back,
-        title = { Text(target?.asset?.label ?: "Target coverage") },
+        title = { Text(certificateService?.let { "Certificate history · TCP ${it.port}" } ?: target?.asset?.label ?: "Target coverage") },
         text = {
             val targets = coverage
             when {
                 targets == null -> CircularProgressIndicator()
                 targets.isEmpty() -> Text("Add a target or save an observation to see coverage.")
                 else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp),
-                    state = if (target == null) overviewScroll else detailScroll,
+                    state = when {
+                        certificateService != null -> certificateScroll
+                        target == null -> overviewScroll
+                        else -> detailScroll
+                    },
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (target == null) {
+                    if (certificateService != null) {
+                        item { Text("Comparisons use the same saved Wi-Fi network, inspection mode and negotiated TLS version.") }
+                        for (history in certificateService.certificateHistories) {
+                            val latest = history.latest
+                            item {
+                                Column {
+                                    HorizontalDivider()
+                                    Text("${latest.protocol} · ${latest.probe.name.replace('_', ' ')}", style = MaterialTheme.typography.titleSmall)
+                                    Text(latest.network)
+                                    Text("${history.captureCount} captures · ${history.changes.size} fingerprint changes")
+                                    Text("Latest capture · ${coverageTime(latest.endedAt)}")
+                                    Text("SHA-256: ${latest.sha256}", style = MaterialTheme.typography.bodySmall)
+                                    TextButton(onClick = { onOpenEvidence(latest.evidenceId) }) { Text("Open latest capture") }
+                                }
+                            }
+                            items(history.changes.asReversed(), key = { "certificate-change-${it.current.evidenceId}" }) { change ->
+                                Column {
+                                    Text("Fingerprint changed", style = MaterialTheme.typography.titleSmall)
+                                    Text("Previous · ${coverageTime(change.previous.endedAt)}")
+                                    Text(change.previous.sha256, style = MaterialTheme.typography.bodySmall)
+                                    TextButton(onClick = { onOpenEvidence(change.previous.evidenceId) }) { Text("Open previous capture") }
+                                    Text("New · ${coverageTime(change.current.endedAt)}")
+                                    Text(change.current.sha256, style = MaterialTheme.typography.bodySmall)
+                                    TextButton(onClick = { onOpenEvidence(change.current.evidenceId) }) { Text("Open changed capture") }
+                                }
+                            }
+                        }
+                    } else if (target == null) {
                         item { Text("Based on saved evidence in this engagement.") }
                         items(targets, key = { it.asset.id }) { row ->
                             Column {
@@ -107,6 +147,10 @@ internal fun AssessmentCoverageDialog(
                                     Text("Latest inspection: ${inspection.probe.name.replace('_', ' ')} · ${inspection.outcome.replace('-', ' ')} · ${coverageTime(inspection.endedAt)}")
                                     TextButton(onClick = { onOpenEvidence(inspection.evidenceId) }) { Text("Open inspection") }
                                 }
+                                if (service.certificateHistories.isNotEmpty()) {
+                                    val changes = service.certificateHistories.sumOf { it.changes.size }
+                                    OutlinedButton(onClick = { certificatePort = service.port }) { Text("Certificate history ($changes changes)") }
+                                }
                             }
                         }
                         item {
@@ -128,7 +172,13 @@ internal fun AssessmentCoverageDialog(
                 }
             }
         },
-        confirmButton = { TextButton(onClick = back) { Text(if (target == null) "Done" else "Back to targets") } },
+        confirmButton = { TextButton(onClick = back) {
+            Text(when {
+                certificateService != null -> "Back to endpoints"
+                target == null -> "Done"
+                else -> "Back to targets"
+            })
+        } },
     )
 }
 
