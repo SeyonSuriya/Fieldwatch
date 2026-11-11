@@ -115,8 +115,8 @@ class AssessmentViewModel(application: Application) : AndroidViewModel(applicati
         AssessmentReports.export(engagement, full, now, BuildConfig.VERSION_NAME)
     }
 
-    fun prepareFindingsReport() = prepareExport(AssessmentExportFormat.TEXT) { engagement, now ->
-        AssessmentReports.exportFindingsText(engagement, now, BuildConfig.VERSION_NAME)
+    fun prepareTextReport() = prepareExport(AssessmentExportFormat.TEXT) { engagement, now ->
+        AssessmentReports.exportAssessmentText(engagement, now, BuildConfig.VERSION_NAME)
     }
 
     private fun prepareExport(format: AssessmentExportFormat, render: (AssessmentEngagement, Long) -> String) = action {

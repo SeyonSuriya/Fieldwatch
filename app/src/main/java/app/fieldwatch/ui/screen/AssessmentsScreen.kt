@@ -53,7 +53,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
             val timestamp = System.currentTimeMillis()
             when (format) {
                 AssessmentExportFormat.JSON -> jsonExporter.launch("fieldwatch-assessment-$timestamp.${format.extension}")
-                AssessmentExportFormat.TEXT -> textExporter.launch("fieldwatch-findings-$timestamp.${format.extension}")
+                AssessmentExportFormat.TEXT -> textExporter.launch("fieldwatch-assessment-$timestamp.${format.extension}")
             }
         } catch (_: android.content.ActivityNotFoundException) {
             vm.exportFailed()
@@ -117,7 +117,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                         }
                         OutlinedButton(onClick = { vm.prepareReport(false) }, enabled = !busy) { Text("Export summary") }
                         OutlinedButton(onClick = { dialog = "full-export" }, enabled = !busy) { Text("Export full report") }
-                        OutlinedButton(onClick = { dialog = "findings-export" }, enabled = !busy) { Text("Export findings as text") }
+                        OutlinedButton(onClick = { dialog = "text-export" }, enabled = !busy) { Text("Export assessment as text") }
                         if (selected.closedAt == null) TextButton(onClick = { dialog = "close" }, enabled = editable) { Text("Close engagement") }
                         TextButton(onClick = { dialog = "delete" }, enabled = !busy) { Text("Delete engagement") }
                     }
@@ -261,9 +261,9 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
         "full-export" -> ConfirmAssessmentDialog("Export full report?",
             "Includes target identifiers, scope, findings, all evidence notes and saved operator-phone metadata in unencrypted JSON. Save only to a destination you intend to trust.",
             "Export", { dialog = null }) { vm.prepareReport(true); dialog = null }
-        "findings-export" -> ConfirmAssessmentDialog("Export findings as text?",
-            "The unencrypted text file includes the engagement scope, target identifiers, finding descriptions and evidence references.",
-            "Export", { dialog = null }) { vm.prepareFindingsReport(); dialog = null }
+        "text-export" -> ConfirmAssessmentDialog("Export assessment as text?",
+            "The unencrypted text file includes scope, target identifiers, coverage, findings and evidence references.",
+            "Export", { dialog = null }) { vm.prepareTextReport(); dialog = null }
         "close" -> ConfirmAssessmentDialog("Close engagement?", "Finish or cancel running observations first. Closed records remain exportable but cannot be edited.",
             "Close", { dialog = null }) { vm.close(); dialog = null }
         "delete" -> ConfirmAssessmentDialog("Delete engagement?", "Permanently removes this record and its evidence from the app. Export a full report first if you need a copy. Existing exported copies are not deleted.",

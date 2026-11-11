@@ -43,7 +43,7 @@ class AssessmentTest {
         val first = base.findings.single()
         val lowerPriority = first.copy(id = "f-2", severity = FindingSeverity.LOW, confidence = FindingConfidence.CONFIRMED,
             title = "Other finding", description = "Operator detail\r\nSecond line\u001b")
-        val report = AssessmentReports.exportFindingsText(base.copy(findings = listOf(lowerPriority, first)), 5, "test")
+        val report = AssessmentReports.exportAssessmentText(base.copy(findings = listOf(lowerPriority, first)), 5, "test")
         assertTrue(report.contains("F1  HIGH / SUSPECTED"))
         assertTrue(report.contains("F2  LOW / CONFIRMED"))
         assertEquals(2, report.lines().count { it == "  E1" })
@@ -57,7 +57,7 @@ class AssessmentTest {
 
     @Test fun textReportHandlesEngagementsWithoutFindings() {
         val original = engagement()
-        val report = AssessmentReports.exportFindingsText(original.copy(findings = emptyList()), 5, "test")
+        val report = AssessmentReports.exportAssessmentText(original.copy(findings = emptyList()), 5, "test")
         assertTrue(report.contains("No findings recorded."))
         assertFalse(report.contains(original.evidence.single().sha256))
     }

@@ -290,6 +290,17 @@ class AssessmentStoreTest {
         assertTrue(wifiPending.checks)
         assertFalse(wifiPending.discovery)
 
+        val report = AssessmentReports.exportAssessmentText(saved, 5000, "test")
+        assertTrue(report.contains("Target coverage (2)"))
+        assertEquals(2, report.lines().count { it == "Pending checks: 1" })
+        assertTrue(report.contains("Pending software discovery: 1"))
+        assertTrue(report.contains("TCP port 443\nLatest TCP check\n  timeout"))
+        assertTrue(report.contains("Saved responses: 1"))
+        val tcpEvidence = saved.evidence.single { it.source == "network-tcp-connect" }
+        assertTrue(report.contains("Evidence ID\n  ${tcpEvidence.id}"))
+        assertTrue(report.contains(tcpEvidence.sha256))
+        assertFalse(report.contains(tcpEvidence.text))
+
         val pendingChecks = network.pendingReviews.filter { it.checks }.map { it.evidenceId }
         val pendingDiscovery = network.pendingReviews.filter { it.discovery }.map { it.evidenceId }
         assertEquals(EvidenceReviewBatch(1, 0, 0), store.evaluateEvidenceBatch(engagement, pendingChecks, 94))

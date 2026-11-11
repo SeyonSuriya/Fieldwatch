@@ -13,6 +13,7 @@ data class CoverageInspection(
 data class ServiceCoverage(
     val port: Int,
     val latestTcp: TcpObservation? = null,
+    val latestTcpEvidenceId: String? = null,
     val latestInspection: CoverageInspection? = null,
     val capturedResponses: Int = 0,
 )
@@ -66,7 +67,7 @@ object AssessmentCoverage {
                         for (observation in observations) {
                             val service = services[observation.port] ?: ServiceCoverage(observation.port)
                             if (service.latestTcp == null || observation.observedAt >= service.latestTcp.observedAt) {
-                                services[observation.port] = service.copy(latestTcp = observation)
+                                services[observation.port] = service.copy(latestTcp = observation, latestTcpEvidenceId = row.id)
                             }
                         }
                     }

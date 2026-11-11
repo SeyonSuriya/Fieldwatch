@@ -235,19 +235,25 @@ object AssessmentReports {
         ))
     }
 
-    fun exportFindingsText(engagement: AssessmentEngagement, now: Long, appVersion: String): String {
+    fun exportAssessmentText(engagement: AssessmentEngagement, now: Long, appVersion: String): String {
         AssessmentRules.validate(AssessmentArchive(engagements = listOf(engagement)))
         val findings = engagement.findings.sortedByDescending { it.severity }
-        val sourceIds = findings.flatMap { it.evidenceIds }.distinct()
+        val coverage = AssessmentCoverage.summarize(engagement)
+        val coverageSources = coverage.flatMap { target ->
+            target.services.flatMap { listOfNotNull(it.latestTcpEvidenceId, it.latestInspection?.evidenceId) } +
+                target.pendingReviews.map { it.evidenceId }
+        }
+        val sourceIds = (findings.flatMap { it.evidenceIds } + coverageSources).distinct()
         val references = sourceIds.withIndex().associate { it.value to "E${it.index + 1}" }
         val evidenceById = engagement.evidence.associateBy { it.id }
         val assetsById = engagement.assets.associateBy { it.id }
         return buildString {
-            appendLine("Fieldwatch findings report")
+            appendLine("Fieldwatch assessment report")
             appendField("Exported (UTC)", Instant.ofEpochMilli(now).toString())
             appendField("App version", appVersion)
             appendField("Engagement", engagement.name)
             appendField("Authorized scope", engagement.scope)
+            appendCoverage(coverage, references)
             appendLine()
             appendLine("Findings (${findings.size})")
             if (findings.isEmpty()) appendLine("No findings recorded.")
@@ -277,6 +283,45 @@ object AssessmentReports {
                     appendField("Captured (UTC)", Instant.ofEpochMilli(evidence.capturedAt).toString())
                     appendField("SHA-256", evidence.sha256)
                 }
+            }
+        }
+    }
+
+    private fun StringBuilder.appendCoverage(coverage: List<TargetCoverage>, references: Map<String, String>) {
+        appendLine()
+        appendLine("Target coverage (${coverage.size})")
+        appendLine("Coverage reflects saved evidence.")
+        for (target in coverage) {
+            appendLine()
+            appendField("Target", target.asset.label)
+            appendField("Target identifier", target.asset.identifier)
+            appendField("Transport", target.asset.transport.name)
+            appendLine("Saved evidence records: ${target.savedEvidenceCount}")
+            appendLine("TCP endpoints: ${target.services.size}")
+            appendLine("Records awaiting review: ${target.pendingReviews.size}")
+            appendLine("Pending checks: ${target.pendingReviews.count { it.checks }}")
+            appendLine("Pending software discovery: ${target.pendingReviews.count { it.discovery }}")
+            if (target.unreadableNetworkRecords > 0) {
+                appendLine("Unreadable network records: ${target.unreadableNetworkRecords}")
+            }
+            for (service in target.services) {
+                appendLine()
+                appendLine("TCP port ${service.port}")
+                service.latestTcp?.let { tcp ->
+                    val reference = service.latestTcpEvidenceId?.let(references::getValue)
+                    appendField("Latest TCP check", listOfNotNull(tcp.outcome.replace('-', ' '),
+                        Instant.ofEpochMilli(tcp.observedAt).toString(), reference).joinToString(" · "))
+                }
+                service.latestInspection?.let { inspection ->
+                    inspection.advertisedLabel?.let { appendField("Advertised service", it) }
+                    appendField("Latest service inspection",
+                        "${inspection.probe.name.replace('_', ' ')} · ${inspection.outcome.replace('-', ' ')} · ${Instant.ofEpochMilli(inspection.endedAt)} · ${references.getValue(inspection.evidenceId)}")
+                } ?: appendLine("No service inspection saved.")
+                appendLine("Saved responses: ${service.capturedResponses}")
+            }
+            for (pending in target.pendingReviews) {
+                val actions = listOfNotNull("checks".takeIf { pending.checks }, "software discovery".takeIf { pending.discovery })
+                appendField("Pending ${actions.joinToString(" and ")} (${references.getValue(pending.evidenceId)})", pending.title)
             }
         }
     }
