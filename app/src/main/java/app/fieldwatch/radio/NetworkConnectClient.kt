@@ -68,7 +68,11 @@ class NetworkConnectClient(context: Context) {
         TcpObservation(address, port, outcome, System.currentTimeMillis())
     }
 
-    suspend fun inspect(address: String, port: Int, probe: ServiceProbe): ServiceInspectionReport = coroutineScope {
+    suspend fun auditTls(address: String, port: Int): List<ServiceInspectionReport> =
+        ServiceInspection.TLS_AUDIT_VERSIONS.map { inspect(address, port, ServiceProbe.TLS, it) }
+            .also(ServiceInspection::validateTlsAudit)
+
+    suspend fun inspect(address: String, port: Int, probe: ServiceProbe, requestedTlsProtocol: String? = null): ServiceInspectionReport = coroutineScope {
         ServiceInspection.request(address, port)
         validateTargets(listOf(address))
         val socket = synchronized(sockets) {
@@ -82,9 +86,16 @@ class NetworkConnectClient(context: Context) {
             runCatching { socket.close() }
         }
         try {
-            val report = withContext(Dispatchers.IO) { ServiceInspector.inspect(socket, address, port, probe, description) }
+            val report = withContext(Dispatchers.IO) {
+                ServiceInspector.inspect(socket, address, port, probe, description, requestedTlsProtocol = requestedTlsProtocol)
+            }
             currentCoroutineContext().ensureActive()
-            if (expired.get()) report.copy(outcome = "timeout") else report
+            when {
+                !expired.get() -> report
+                requestedTlsProtocol != null -> report.copy(outcome = "timeout",
+                    tlsProtocol = null, tlsCipher = null, certificateSha256 = null)
+                else -> report.copy(outcome = "timeout")
+            }
         } finally {
             deadline.cancel()
             synchronized(sockets) { sockets.remove(socket) }

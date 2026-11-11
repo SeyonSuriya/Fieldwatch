@@ -22,12 +22,14 @@ data class ServiceInspectionReport(
     val tlsProtocol: String? = null,
     val tlsCipher: String? = null,
     val certificateSha256: String? = null,
+    val requestedTlsProtocol: String? = null,
 ) {
     fun validate() {
         require(NetworkScope.hosts(address) == listOf(address))
         require(port in 1..65535 && network.length in 1..200 && startedAt > 0 && endedAt >= startedAt)
         require(format == "fieldwatch-service-inspection" && version == 1)
-        require(outcome in setOf("observed", "eof", "timeout", "tls-validation-or-handshake-failed", "connection-or-io-error"))
+        require(outcome in setOf("observed", "eof", "timeout", "tls-validation-or-handshake-failed", "connection-or-io-error") ||
+            (outcome == "tls-version-unavailable" && requestedTlsProtocol != null))
         val http = probe == ServiceProbe.HTTP_HEAD || probe == ServiceProbe.HTTPS_HEAD
         require(attemptedRequestHex.isEmpty() || (http && attemptedRequestHex == ServiceInspection.hex(ServiceInspection.request(address, port))))
         require(receivedHex.length <= ServiceInspection.MAX_CAPTURE * 2 && receivedHex.length % 2 == 0 && receivedHex.all { it in "0123456789abcdef" })
@@ -38,12 +40,30 @@ data class ServiceInspectionReport(
         require(probe != ServiceProbe.TLS || outcome != "observed" || tlsProtocol != null)
         require(listOfNotNull(tlsProtocol, tlsCipher).all { it.length in 1..160 })
         require(certificateSha256 == null || certificateSha256.matches(Regex("[0-9a-f]{64}")))
+        requestedTlsProtocol?.let { requested ->
+            require(probe == ServiceProbe.TLS && requested in ServiceInspection.TLS_AUDIT_VERSIONS)
+            require(receivedHex.isEmpty())
+            require(if (outcome == "observed") tlsProtocol == requested else tlsProtocol == null)
+        }
     }
 }
 
 object ServiceInspection {
     const val MAX_CAPTURE = 4096
     const val DEADLINE_MS = 5000L
+    val TLS_AUDIT_VERSIONS = listOf("TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3")
+
+    fun validateTlsAudit(attempts: List<ServiceInspectionReport>) {
+        require(attempts.map { it.requestedTlsProtocol } == TLS_AUDIT_VERSIONS) { "A TLS audit needs all four version results." }
+        val endpoint = attempts.first()
+        attempts.forEach {
+            it.validate()
+            require(it.address == endpoint.address && it.port == endpoint.port && it.network == endpoint.network) {
+                "TLS audit results must share one endpoint and Wi-Fi network."
+            }
+        }
+    }
+
     fun request(address: String, port: Int): ByteArray {
         require(NetworkScope.hosts(address) == listOf(address) && port in 1..65535)
         return "HEAD / HTTP/1.0\r\nHost: $address:$port\r\nConnection: close\r\nUser-Agent: Fieldwatch-Assessment/1\r\n\r\n".toByteArray(Charsets.US_ASCII)

@@ -35,6 +35,7 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
     val report by vm.report.collectAsStateWithLifecycle()
     val reportEngagement by vm.reportEngagement.collectAsStateWithLifecycle()
     val service by vm.service.collectAsStateWithLifecycle()
+    val tlsAudit by vm.tlsAudit.collectAsStateWithLifecycle()
     val serviceEngagement by vm.serviceEngagement.collectAsStateWithLifecycle()
     val wifi by vm.wifi.collectAsStateWithLifecycle()
     var engagement by remember { mutableStateOf<String?>(null) }
@@ -92,6 +93,25 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
                     })
                 } }
                 Button(onClick = { engagement?.let { pendingInspection = PendingInspection(it, serviceAddress.trim(), servicePort.trim(), probe) } }, enabled = !busy && engagement != null) { Text("Review inspection") }
+                OutlinedButton(onClick = {
+                    engagement?.let { pendingInspection = PendingInspection(it, serviceAddress.trim(), servicePort.trim(), ServiceProbe.TLS, audit = true) }
+                }, enabled = !busy && engagement != null) { Text("Review TLS version audit") }
+                tlsAudit.firstOrNull()?.let { endpoint ->
+                    Text("TLS versions on ${endpoint.address}:${endpoint.port}", style = MaterialTheme.typography.titleMedium)
+                    Text("Evidence destination: $serviceEngagement")
+                    for (attempt in tlsAudit) {
+                        val result = when (attempt.outcome) {
+                            "observed" -> "Verified handshake"
+                            "tls-version-unavailable" -> "Version disabled on this phone"
+                            "timeout" -> "Timed out"
+                            "connection-or-io-error" -> "Connection or I/O error"
+                            else -> "Handshake or certificate validation failed"
+                        }
+                        Text("${attempt.requestedTlsProtocol} · $result")
+                        attempt.tlsCipher?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                    }
+                    Button(onClick = vm::saveTlsAudit, enabled = !busy) { Text("Save TLS audit evidence") }
+                }
                 service?.let { result ->
                     val label = remember(result) { ServiceInspection.advertisedLabel(result) }
                     Text(label ?: ServiceInspection.identify(result.receivedHex), style = MaterialTheme.typography.titleMedium)
@@ -130,9 +150,16 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
         confirmButton = { TextButton(onClick = { confirm = false; engagement?.let { vm.start(it, scope, ports) } }) { Text("Start checks") } },
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } })
     pendingInspection?.let { pending ->
-        AlertDialog(onDismissRequest = { pendingInspection = null }, title = { Text("Confirm service inspection") },
-            text = { Text("Engagement: ${archive.engagements.firstOrNull { it.id == pending.engagement }?.name}\nTarget: ${pending.address}:${pending.port}\nMode: ${pending.probe}\n\nI am authorized to inspect this target. HTTP modes send HEAD /; TLS modes perform a verified handshake. Requests may be logged or affect the service.") },
-            confirmButton = { TextButton(onClick = { pendingInspection = null; vm.inspect(pending.engagement, pending.address, pending.port, pending.probe) }) { Text("Inspect") } },
+        val method = if (pending.audit) "Up to four connections to check TLS 1.0 through 1.3. Each version enabled on this phone gets one handshake with certificate verification."
+            else "Mode: ${pending.probe}. HTTP modes send HEAD /. TLS modes verify the certificate."
+        AlertDialog(onDismissRequest = { pendingInspection = null },
+            title = { Text(if (pending.audit) "Confirm TLS version audit" else "Confirm service inspection") },
+            text = { Text("Engagement: ${archive.engagements.firstOrNull { it.id == pending.engagement }?.name}\nTarget: ${pending.address}:${pending.port}\n\n$method\n\nI am authorized to inspect this target. Connections may be logged by the service.") },
+            confirmButton = { TextButton(onClick = {
+                pendingInspection = null
+                if (pending.audit) vm.auditTls(pending.engagement, pending.address, pending.port)
+                else vm.inspect(pending.engagement, pending.address, pending.port, pending.probe)
+            }) { Text(if (pending.audit) "Start audit" else "Inspect") } },
             dismissButton = { TextButton(onClick = { pendingInspection = null }) { Text("Cancel") } })
     }
     pendingWifi?.let { (destination, snapshot) ->
@@ -143,4 +170,4 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
     }
 }
 
-private data class PendingInspection(val engagement: String, val address: String, val port: String, val probe: ServiceProbe)
+private data class PendingInspection(val engagement: String, val address: String, val port: String, val probe: ServiceProbe, val audit: Boolean = false)

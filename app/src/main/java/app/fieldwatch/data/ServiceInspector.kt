@@ -18,9 +18,18 @@ object ServiceInspector {
         socket.sslParameters = socket.sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
     }
 
+    internal fun pinEnabledTlsProtocol(socket: SSLSocket, protocol: String): Boolean {
+        require(protocol in ServiceInspection.TLS_AUDIT_VERSIONS)
+        if (protocol !in socket.enabledProtocols) return false
+        socket.enabledProtocols = arrayOf(protocol)
+        return true
+    }
+
     fun inspect(socket: Socket, address: String, port: Int, probe: ServiceProbe, network: String,
+        requestedTlsProtocol: String? = null,
         nanoTime: () -> Long = System::nanoTime): ServiceInspectionReport {
         ServiceInspection.request(address, port) // Validate even modes which do not send HTTP.
+        require(requestedTlsProtocol == null || (probe == ServiceProbe.TLS && requestedTlsProtocol in ServiceInspection.TLS_AUDIT_VERSIONS))
         val startedAt = System.currentTimeMillis()
         val deadline = nanoTime() + ServiceInspection.DEADLINE_MS * 1_000_000
         fun remaining(): Int = ((deadline - nanoTime()) / 1_000_000).coerceAtMost(ServiceInspection.DEADLINE_MS).toInt()
@@ -41,11 +50,20 @@ object ServiceInspector {
                 val tls = (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket(socket, address, port, true) as SSLSocket
                 active = tls
                 configureTls(tls)
-                tls.soTimeout = remaining()
-                tls.startHandshake()
-                protocol = tls.session.protocol
-                cipher = tls.session.cipherSuite
-                certificate = ServiceInspection.hex(MessageDigest.getInstance("SHA-256").digest(tls.session.peerCertificates.first().encoded))
+                if (requestedTlsProtocol != null && !pinEnabledTlsProtocol(tls, requestedTlsProtocol)) {
+                    outcome = "tls-version-unavailable"
+                } else {
+                    tls.soTimeout = remaining()
+                    tls.startHandshake()
+                    val session = tls.session
+                    if (requestedTlsProtocol != null && session.protocol != requestedTlsProtocol) {
+                        throw SSLException("Negotiated protocol differs from the requested version")
+                    }
+                    val fingerprint = ServiceInspection.hex(MessageDigest.getInstance("SHA-256").digest(session.peerCertificates.first().encoded))
+                    protocol = session.protocol
+                    cipher = session.cipherSuite
+                    certificate = fingerprint
+                }
             }
             if (probe == ServiceProbe.HTTP_HEAD || probe == ServiceProbe.HTTPS_HEAD) {
                 val request = ServiceInspection.request(address, port)
@@ -75,6 +93,7 @@ object ServiceInspector {
             startedAt = startedAt, endedAt = maxOf(startedAt, System.currentTimeMillis()), outcome = outcome,
             attemptedRequestHex = attemptedRequest,
             receivedHex = ServiceInspection.hex(captured.toByteArray()), captureLimitReached = captured.size() == ServiceInspection.MAX_CAPTURE,
-            tlsProtocol = protocol, tlsCipher = cipher, certificateSha256 = certificate).also { it.validate() }
+            tlsProtocol = protocol, tlsCipher = cipher, certificateSha256 = certificate,
+            requestedTlsProtocol = requestedTlsProtocol).also { it.validate() }
     }
 }

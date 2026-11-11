@@ -97,4 +97,16 @@ class ServiceInspectorTest {
             assertEquals("HTTPS", socket.sslParameters.endpointIdentificationAlgorithm)
         }
     }
+
+    @Test fun tlsAuditPinsOnlyVersionsAlreadyEnabledOnTheSocket() {
+        (SSLSocketFactory.getDefault().createSocket() as SSLSocket).use { socket ->
+            socket.enabledProtocols = arrayOf("TLSv1.2", "TLSv1.3")
+            ServiceInspector.configureTls(socket)
+            assertFalse(ServiceInspector.pinEnabledTlsProtocol(socket, "TLSv1"))
+            assertArrayEquals(arrayOf("TLSv1.2", "TLSv1.3"), socket.enabledProtocols)
+            assertTrue(ServiceInspector.pinEnabledTlsProtocol(socket, "TLSv1.2"))
+            assertArrayEquals(arrayOf("TLSv1.2"), socket.enabledProtocols)
+            assertEquals("HTTPS", socket.sslParameters.endpointIdentificationAlgorithm)
+        }
+    }
 }

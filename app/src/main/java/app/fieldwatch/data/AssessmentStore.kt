@@ -175,6 +175,17 @@ class AssessmentStore(
             "service-inspection", json.encodeToString(report), report.startedAt, report.endedAt, catalogVersion)
     }
 
+    suspend fun saveTlsAudit(engagementId: String, attempts: List<ServiceInspectionReport>, catalogVersion: Int) {
+        ServiceInspection.validateTlsAudit(attempts)
+        edit(engagementId) { engagement ->
+            attempts.fold(engagement) { updated, report ->
+                updated.withStructuredSnapshot(report.address, report.address, AssessmentTransport.NETWORK,
+                    "service-inspection", json.encodeToString(report), report.startedAt, report.endedAt, catalogVersion,
+                    "TLS audit · ${report.requestedTlsProtocol}")
+            }
+        }
+    }
+
     suspend fun saveServiceDiscovery(engagementId: String, evidenceId: String): Boolean =
         saveServiceDiscoveries(engagementId, listOf(evidenceId)) == 1
 
@@ -228,19 +239,24 @@ class AssessmentStore(
 
     private suspend fun saveStructuredSnapshot(engagementId: String, identifier: String, label: String, transport: AssessmentTransport,
         source: String, body: String, startedAt: Long, endedAt: Long, catalogVersion: Int) {
-        require(body.toByteArray(Charsets.UTF_8).size <= AssessmentRules.MAX_NOTE_BYTES) { "Evidence exceeds 64 KiB." }
         edit(engagementId) { engagement ->
-            val capturedAt = now()
-            val asset = engagement.assets.firstOrNull { it.transport == transport && it.identifier.equals(identifier, true) }
-                ?: AssessmentAsset(id(), label, identifier, transport, capturedAt)
-            val run = AssessmentRun(id(), asset.id, startedAt, checkId = source,
-                status = AssessmentRunStatus.RECORDED, endedAt = endedAt)
-            val evidence = AssessmentEvidence(id(), asset.id, run.id, source, body,
-                AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), capturedAt, source = source,
-                appVersion = appVersion, catalogVersion = catalogVersion)
-            engagement.copy(assets = if (engagement.assets.any { it.id == asset.id }) engagement.assets else engagement.assets + asset,
-                runs = engagement.runs + run, evidence = engagement.evidence + evidence)
+            engagement.withStructuredSnapshot(identifier, label, transport, source, body, startedAt, endedAt, catalogVersion)
         }
+    }
+
+    private fun AssessmentEngagement.withStructuredSnapshot(identifier: String, label: String, transport: AssessmentTransport,
+        source: String, body: String, startedAt: Long, endedAt: Long, catalogVersion: Int, title: String = source): AssessmentEngagement {
+        require(body.toByteArray(Charsets.UTF_8).size <= AssessmentRules.MAX_NOTE_BYTES) { "Evidence exceeds 64 KiB." }
+        val capturedAt = now()
+        val asset = assets.firstOrNull { it.transport == transport && it.identifier.equals(identifier, true) }
+            ?: AssessmentAsset(id(), label, identifier, transport, capturedAt)
+        val run = AssessmentRun(id(), asset.id, startedAt, checkId = source,
+            status = AssessmentRunStatus.RECORDED, endedAt = endedAt)
+        val record = AssessmentEvidence(id(), asset.id, run.id, title, body,
+            AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), capturedAt, source = source,
+            appVersion = appVersion, catalogVersion = catalogVersion)
+        return copy(assets = if (assets.any { it.id == asset.id }) assets else assets + asset,
+            runs = runs + run, evidence = evidence + record)
     }
 
     suspend fun evaluateEvidence(engagementId: String, evidenceId: String, catalogVersion: Int): Int =

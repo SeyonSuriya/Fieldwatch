@@ -24,6 +24,8 @@ class NetworkAssessmentViewModel(application: Application) : AndroidViewModel(ap
     val reportEngagement = mutableReportEngagement.asStateFlow()
     private val mutableService = MutableStateFlow<ServiceInspectionReport?>(null)
     val service = mutableService.asStateFlow()
+    private val mutableTlsAudit = MutableStateFlow<List<ServiceInspectionReport>>(emptyList())
+    val tlsAudit = mutableTlsAudit.asStateFlow()
     private val mutableServiceEngagement = MutableStateFlow("")
     val serviceEngagement = mutableServiceEngagement.asStateFlow()
     private var serviceDestination: String? = null
@@ -79,7 +81,13 @@ class NetworkAssessmentViewModel(application: Application) : AndroidViewModel(ap
     }
 
     fun stop() { job?.cancel(); client?.close() }
-    fun inspect(engagementId: String, address: String, port: String, probe: ServiceProbe) {
+    fun inspect(engagementId: String, address: String, port: String, probe: ServiceProbe) =
+        startInspection(engagementId, address, port, probe, audit = false)
+
+    fun auditTls(engagementId: String, address: String, port: String) =
+        startInspection(engagementId, address, port, ServiceProbe.TLS, audit = true)
+
+    private fun startInspection(engagementId: String, address: String, port: String, probe: ServiceProbe, audit: Boolean) {
         if (mutableBusy.value) return
         job = viewModelScope.launch {
             mutableBusy.value = true
@@ -94,14 +102,29 @@ class NetworkAssessmentViewModel(application: Application) : AndroidViewModel(ap
                 client = selected
                 selected.validateTargets(listOf(address))
                 mutableService.value = null
+                mutableTlsAudit.value = emptyList()
                 serviceDestination = engagementId
                 mutableServiceEngagement.value = engagement.name
-                mutableNotice.value = "Inspecting $address:$checkedPort with $probe (five-second deadline)."
-                mutableService.value = selected.inspect(address, checkedPort, probe)
-                mutableNotice.value = "Inspection finished. Banners and headers are server claims; no vulnerability or access verdict was created."
+                if (audit) {
+                    mutableNotice.value = "Checking TLS versions on $address:$checkedPort. Up to five seconds per version."
+                    mutableTlsAudit.value = selected.auditTls(address, checkedPort)
+                    mutableNotice.value = "TLS audit finished. Verified handshakes show accepted versions. Other results are inconclusive."
+                } else {
+                    mutableNotice.value = "Inspecting $address:$checkedPort with $probe (five-second deadline)."
+                    mutableService.value = selected.inspect(address, checkedPort, probe)
+                    mutableNotice.value = "Inspection finished. Banners and headers are server claims; no vulnerability or access verdict was created."
+                }
             } catch (e: CancellationException) { mutableNotice.value = "Inspection stopped; no completed report was recorded." }
             catch (e: Exception) { mutableNotice.value = e.message ?: "Inspection failed." }
             finally { selected?.close(); client = null; mutableBusy.value = false }
+        }
+    }
+    fun saveTlsAudit() {
+        val frozen = mutableTlsAudit.value.takeIf { it.isNotEmpty() } ?: return
+        val destination = serviceDestination ?: return
+        persist {
+            app.assessments.saveTlsAudit(destination, frozen, app.config.config.value.version)
+            mutableNotice.value = "TLS audit saved as encrypted service evidence."
         }
     }
     fun saveService() {

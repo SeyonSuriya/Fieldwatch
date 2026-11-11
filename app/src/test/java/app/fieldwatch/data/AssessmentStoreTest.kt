@@ -259,6 +259,29 @@ class AssessmentStoreTest {
         assertEquals(reviewed, reopened.archive.value.engagements.single { it.id == engagement })
     }
 
+    @Test fun tlsAuditRejectsMixedEndpointsAndSavesAllVersionEvidenceTogether() = runBlocking {
+        val store = store(File(temp.newFolder(), "vault.bin"))
+        store.load()
+        val engagement = store.create("Lab", "Authorized fixtures")
+        val base = serviceReport().copy(probe = ServiceProbe.TLS, receivedHex = "", outcome = "tls-version-unavailable")
+        val attempts = ServiceInspection.TLS_AUDIT_VERSIONS.map { base.copy(requestedTlsProtocol = it) }.toMutableList()
+        attempts[2] = attempts[2].copy(outcome = "observed", tlsProtocol = "TLSv1.2",
+            tlsCipher = "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", certificateSha256 = "a".repeat(64))
+        rejects { store.saveTlsAudit(engagement, attempts.dropLast(1), 94) }
+        rejects { store.saveTlsAudit(engagement, attempts.map { if (it.requestedTlsProtocol == "TLSv1") it.copy(port = 443) else it }, 94) }
+        rejects { store.saveTlsAudit(engagement, attempts.map { if (it.requestedTlsProtocol == "TLSv1.2") it.copy(tlsProtocol = "TLSv1.3") else it }, 94) }
+        assertTrue(store.archive.value.engagements.single().evidence.isEmpty())
+
+        store.saveTlsAudit(engagement, attempts, 94)
+        val saved = store.archive.value.engagements.single()
+        assertEquals(1, saved.assets.size)
+        assertEquals(attempts, saved.evidence.map { Json.decodeFromString<ServiceInspectionReport>(it.text) })
+        assertEquals(1, AssessmentCoverage.summarize(saved).single().services.single().capturedResponses)
+        val unavailable = AssessmentChecks.evaluate(saved, saved.evidence.first().id, 1000)
+        assertEquals(CheckOutcome.INCONCLUSIVE, unavailable.results.single { it.checkId == "tls-legacy" }.outcome)
+        assertTrue(saved.access.isEmpty())
+    }
+
     @Test fun coverageDistinguishesTcpResultsCapturesAndReviewsOfEachSource() = runBlocking {
         val store = store(File(temp.newFolder(), "vault.bin"))
         store.load()
