@@ -93,9 +93,10 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
                 } }
                 Button(onClick = { engagement?.let { pendingInspection = PendingInspection(it, serviceAddress.trim(), servicePort.trim(), probe) } }, enabled = !busy && engagement != null) { Text("Review inspection") }
                 service?.let { result ->
+                    val label = remember(result) { ServiceInspection.advertisedLabel(result) }
+                    Text(label ?: ServiceInspection.identify(result.receivedHex), style = MaterialTheme.typography.titleMedium)
                     Text("${result.address}:${result.port} · ${result.probe} · ${result.outcome} · ${Date(result.startedAt)}")
                     Text("Evidence destination: $serviceEngagement (fixed when inspection started)")
-                    Text(ServiceInspection.identify(result.receivedHex))
                     if (result.attemptedRequestHex.isNotEmpty()) Text("Request attempted:\n${ServiceInspection.display(result.attemptedRequestHex)}")
                     if (result.tlsProtocol != null) Text("Verified TLS session: ${result.tlsProtocol} · ${result.tlsCipher}\nLeaf certificate SHA-256: ${result.certificateSha256}")
                     if (result.captureLimitReached) Text("Capture limit reached; additional bytes may exist.")

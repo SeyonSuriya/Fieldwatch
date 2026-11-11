@@ -1136,8 +1136,8 @@ private fun RankedList(
     flashKeys: Set<String> = emptySet(),
     alertedKeys: Set<String> = emptySet(),
     pinEnd: Boolean = false,
-    titleLine: ListLine = ListLine.MAC,
-    subtitleLine: ListLine = ListLine.NAME_AND_TYPE,
+    titleLine: ListLine = ListLine.NAME_AND_TYPE,
+    subtitleLine: ListLine = ListLine.MAC,
     demoMode: Boolean = false,
 ) {
     val listState = rememberLazyListState()
@@ -1261,8 +1261,8 @@ fun DeviceRow(
     showSeenTimes: Boolean = false,
     now: Long = System.currentTimeMillis(),
     highlighted: Boolean = false,
-    titleLine: ListLine = ListLine.MAC,
-    subtitleLine: ListLine = ListLine.NAME_AND_TYPE,
+    titleLine: ListLine = ListLine.NAME_AND_TYPE,
+    subtitleLine: ListLine = ListLine.MAC,
     demoMode: Boolean = false,
     alerted: Boolean = false,
 ) {
@@ -1595,8 +1595,8 @@ private fun TimelineView(
     showSeenTimes: Boolean = false,
     flashKeys: Set<String> = emptySet(),
     alertedKeys: Set<String> = emptySet(),
-    titleLine: ListLine = ListLine.MAC,
-    subtitleLine: ListLine = ListLine.NAME_AND_TYPE,
+    titleLine: ListLine = ListLine.NAME_AND_TYPE,
+    subtitleLine: ListLine = ListLine.MAC,
     demoMode: Boolean = false,
 ) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }

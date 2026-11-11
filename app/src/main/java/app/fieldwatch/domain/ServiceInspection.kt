@@ -54,6 +54,19 @@ object ServiceInspection {
         if (it == '\n' || it == '\r' || it == '\t' || it.code in 32..126) it else '·'
     }.joinToString("")
 
+    fun advertisedLabel(report: ServiceInspectionReport): String? {
+        val http = HttpEvidence.read(report)
+        val label = if (http != null) {
+            http.headers.filter { it.first == "server" }.singleOrNull()?.second
+        } else if (report.probe == ServiceProbe.BANNER && report.outcome in setOf("observed", "eof")) {
+            val captured = bytes(report.receivedHex).toString(Charsets.ISO_8859_1)
+            if ('\n' in captured || report.outcome == "eof") captured.substringBefore('\n').trimEnd('\r') else null
+        } else {
+            null
+        }
+        return label?.trim()?.takeIf { it.isNotEmpty() && it.all { char -> char.code in 32..126 } }?.take(120)
+    }
+
     /** Server claims only; never infer an application from the port number. */
     fun identify(hex: String): String {
         val text = display(hex)

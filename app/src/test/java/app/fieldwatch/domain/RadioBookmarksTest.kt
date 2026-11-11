@@ -98,6 +98,20 @@ class RadioBookmarksTest {
     }
 
     @Test
+    fun scanLabelsUpgradeOldDefaultsOnceAndPreserveCustomLayouts() {
+        val old = AppSettings(listTitleLine = ListLine.MAC, listSubtitleLine = ListLine.NAME_AND_TYPE)
+        val migrated = PersistedConfig(settings = old).withNameFirstScanLabels()
+        assertEquals(AppSettings().listTitleLine, migrated.settings.listTitleLine)
+        assertEquals(AppSettings().listSubtitleLine, migrated.settings.listSubtitleLine)
+        assertEquals(migrated.copy(settings = old), migrated.copy(settings = old).withNameFirstScanLabels())
+        val custom = old.copy(listSubtitleLine = ListLine.NONE)
+        assertEquals(custom, PersistedConfig(settings = custom).withNameFirstScanLabels().settings)
+        val wifi = ble(name = "").copy(kind = RadioKind.WIFI)
+        assertEquals("Unnamed Wi-Fi access point", wifi.listTitle())
+        assertEquals(wifi.mac, wifi.listLineText(ListLine.MAC))
+    }
+
+    @Test
     fun suggestLabelPrefersAdvertisedName() {
         val named = ble(name = "Tile")
         assertEquals("Tile", RadioBookmarks.suggestLabel(named))

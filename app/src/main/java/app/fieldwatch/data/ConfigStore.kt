@@ -64,7 +64,7 @@ class ConfigStore(context: Context) {
                     file.writeText(json.encodeToString(seeded))
                     _config.value = seeded
                 } else {
-                    val patched = patchBuiltIn(loaded)
+                    val patched = patchBuiltIn(loaded).withNameFirstScanLabels()
                     _config.value = patched
                     if (patched != loaded) {
                         file.writeText(json.encodeToString(patched))
@@ -1200,6 +1200,7 @@ class ConfigStore(context: Context) {
             presets = FilterEngine().defaultPresets(fleets),
             watchlist = DefaultCatalog.defaultWatchlist(),
             settings = AppSettings(),
+            scanLabelDefaultsMigrated = true,
         )
     }
 

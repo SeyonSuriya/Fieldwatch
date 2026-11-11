@@ -22,7 +22,13 @@ data class InventoryRadio(
     val vendor: String? = null,
 ) {
     val key: String get() = "${transport.name}:${identifier.uppercase()}"
-    val label: String get() = name.ifBlank { identifier }.take(100)
+    val label: String get() = name.trim().takeIf { it.isNotEmpty() && !it.equals(identifier, ignoreCase = true) }
+        ?.take(100) ?: when (transport) {
+            AssessmentTransport.WIFI -> "Unnamed Wi-Fi access point"
+            AssessmentTransport.BLE -> "Unnamed BLE device"
+            AssessmentTransport.BLUETOOTH_CLASSIC -> "Unnamed Classic Bluetooth device"
+            AssessmentTransport.NETWORK -> "Unnamed network service"
+        }
 }
 
 object RadioInventory {

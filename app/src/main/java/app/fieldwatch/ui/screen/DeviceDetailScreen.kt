@@ -132,7 +132,7 @@ fun DeviceDetailScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            Text(MacUtil.screenMac(device.mac, demoMode), fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleMedium)
+            Text("MAC ${MacUtil.screenMac(device.mac, demoMode)}", fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
             if (device.gone) {
                 Text(
                     "Not on the air. This is the last detail we heard.",

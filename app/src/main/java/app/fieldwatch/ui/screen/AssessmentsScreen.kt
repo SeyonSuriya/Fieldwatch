@@ -11,6 +11,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -92,7 +93,6 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                     }
                 } else {
                     val editable = selected.closedAt == null && !busy
-                    val evidenceById = remember(selected.evidence) { selected.evidence.associateBy { it.id } }
                     TextButton(onClick = { vm.select(null) }, enabled = !busy) { Text("All engagements") }
                     SectionCard(selected.name) {
                         Text(selected.scope)
@@ -127,6 +127,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                             OperatorBaselineDetails(baseline)
                         }
                     }
+                    EngagementFindings(selected, onOpenEvidence = { openedEvidenceId = it })
                     if (selected.assets.isEmpty()) Text("Add a target identifier such as a MAC address, hostname or service endpoint. Adding a record does not connect to it.")
                     selected.assets.forEach { asset ->
                         SectionCard(asset.label) {
@@ -167,20 +168,6 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                                         .onSuccess { devicePreview = it }.onFailure { checkError = "Device validation unavailable: ${it.message}" }
                                 }, enabled = editable) { Text("Review reference lab module") }
                                 TextButton(onClick = { targetEvidence = evidence.id; dialog = "finding" }, enabled = editable) { Text("Record suspected finding") }
-                            }
-                            selected.findings.filter { it.assetId == asset.id }.forEach { finding ->
-                                HorizontalDivider()
-                                Text("${finding.confidence} · ${finding.severity}")
-                                Text(finding.title, style = MaterialTheme.typography.titleSmall)
-                                Text(finding.description)
-                                Text(if (finding.checkId == null) "Supported by ${finding.evidenceIds.size} evidence note(s). Operator assessment."
-                                    else "Check ${finding.checkId} v${finding.checkVersion} · ${finding.evidenceIds.size} evidence links. Confidence applies only to the stated condition.", style = MaterialTheme.typography.bodySmall)
-                                finding.evidenceIds.forEach { id ->
-                                    val linked = evidenceById[id]
-                                    if (linked != null) {
-                                        TextButton(onClick = { openedEvidenceId = linked.id }) { Text(linked.title) }
-                                    }
-                                }
                             }
                         }
                     }
@@ -261,6 +248,73 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
             "Close", { dialog = null }) { vm.close(); dialog = null }
         "delete" -> ConfirmAssessmentDialog("Delete engagement?", "Permanently removes this record and its evidence from the app. Export a full report first if you need a copy. Existing exported copies are not deleted.",
             "Delete", { dialog = null }) { vm.delete(); dialog = null }
+    }
+}
+
+@Composable
+private fun EngagementFindings(engagement: AssessmentEngagement, onOpenEvidence: (String) -> Unit) {
+    if (engagement.findings.isEmpty()) return
+    var targetId by remember(engagement.id) { mutableStateOf<String?>(null) }
+    var severity by remember(engagement.id) { mutableStateOf<FindingSeverity?>(null) }
+    var confidence by remember(engagement.id) { mutableStateOf<FindingConfidence?>(null) }
+    val assets = remember(engagement.assets) { engagement.assets.associateBy { it.id } }
+    val evidence = remember(engagement.evidence) { engagement.evidence.associateBy { it.id } }
+    val targets = remember(engagement.findings, engagement.assets) {
+        engagement.findings.map { it.assetId }.distinct().filter { it in assets }
+            .sortedBy { assets.getValue(it).label.lowercase() }
+    }
+    val visible = remember(engagement.findings, targetId, severity, confidence) {
+        engagement.findings.filter {
+            (targetId == null || it.assetId == targetId) && (severity == null || it.severity == severity) &&
+                (confidence == null || it.confidence == confidence)
+        }.sortedByDescending { it.severity }
+    }
+    SectionCard("Findings") {
+        FindingFilterMenu("Target", targets, targetId, { id ->
+            assets[id]?.let { "${it.label} · ${it.identifier}" } ?: id
+        }) { targetId = it }
+        FindingFilterMenu("Severity", FindingSeverity.entries, severity, { it.name.lowercase() }) { severity = it }
+        FindingFilterMenu("Confidence", FindingConfidence.entries, confidence, { it.name.lowercase() }) { confidence = it }
+        if (targetId != null || severity != null || confidence != null) {
+            TextButton(onClick = { targetId = null; severity = null; confidence = null }) { Text("Clear finding filters") }
+        }
+        Text("Showing ${visible.size} of ${engagement.findings.size} findings")
+        if (visible.isEmpty()) Text("No findings match these filters.")
+        for (finding in visible) {
+            HorizontalDivider()
+            Text(finding.title, style = MaterialTheme.typography.titleSmall)
+            Text("${finding.confidence} · ${finding.severity}")
+            assets[finding.assetId]?.let { Text("${it.label} · ${it.identifier}") }
+            Text(finding.description)
+            finding.checkId?.let { Text("Check $it v${finding.checkVersion}", style = MaterialTheme.typography.bodySmall) }
+            finding.evidenceIds.forEach { id ->
+                evidence[id]?.let { linked ->
+                    TextButton(onClick = { onOpenEvidence(id) }) { Text(linked.title) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun <T : Any> FindingFilterMenu(
+    label: String,
+    choices: List<T>,
+    selected: T?,
+    display: (T) -> String,
+    onSelect: (T?) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("$label · ${selected?.let(display) ?: "All"}", maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(text = { Text("All") }, onClick = { onSelect(null); expanded = false })
+            choices.forEach { choice ->
+                DropdownMenuItem(text = { Text(display(choice)) }, onClick = { onSelect(choice); expanded = false })
+            }
+        }
     }
 }
 

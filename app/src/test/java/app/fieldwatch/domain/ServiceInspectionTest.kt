@@ -20,6 +20,19 @@ class ServiceInspectionTest {
         assertEquals("FTP greeting advertised", ServiceInspection.identify(ServiceInspection.hex("220 FTP ready\r\n".toByteArray())))
         assertTrue(ServiceInspection.identify(ServiceInspection.hex("custom protocol".toByteArray())).startsWith("Unclassified"))
     }
+    @Test fun advertisedLabelsRequireUnambiguousHeadersOrPrintableBanners() {
+        val base = report()
+        val http = base.copy(attemptedRequestHex = ServiceInspection.hex(ServiceInspection.request(base.address, base.port)))
+        fun hex(text: String) = ServiceInspection.hex(text.toByteArray(Charsets.ISO_8859_1))
+        assertEquals("LabServer/1", ServiceInspection.advertisedLabel(http.copy(receivedHex =
+            hex("HTTP/1.1 200 OK\r\nServer: LabServer/1\r\n\r\n"))))
+        assertNull(ServiceInspection.advertisedLabel(http.copy(receivedHex =
+            hex("HTTP/1.1 200 OK\r\nServer: One\r\nServer: Two\r\n\r\n"))))
+        val banner = base.copy(probe = ServiceProbe.BANNER, outcome = "observed")
+        assertEquals("SSH-2.0-OpenSSH_9.6", ServiceInspection.advertisedLabel(banner.copy(receivedHex = hex("SSH-2.0-OpenSSH_9.6\r\n"))))
+        assertNull(ServiceInspection.advertisedLabel(banner.copy(receivedHex = hex("incomplete"))))
+        assertNull(ServiceInspection.advertisedLabel(banner.copy(receivedHex = hex("\u0000binary\n"))))
+    }
     @Test fun previewReplacesControlsAndHexPreservesBytes() {
         val bytes = byteArrayOf(0, 27, 65, -1, 10)
         assertArrayEquals(bytes, ServiceInspection.bytes(ServiceInspection.hex(bytes)))

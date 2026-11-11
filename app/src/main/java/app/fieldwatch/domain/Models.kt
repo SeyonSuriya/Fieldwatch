@@ -579,10 +579,10 @@ data class AppSettings(
     val showFleetName: Boolean = true,
     val showFrequency: Boolean = true,
     val showSeenTimes: Boolean = true,
-    /** Live row first line. Default is MAC. */
-    val listTitleLine: ListLine = ListLine.MAC,
-    /** Live row second line. Default is name, else type guess. NONE hides the line. */
-    val listSubtitleLine: ListLine = ListLine.NAME_AND_TYPE,
+    /** Live row first line. Default is name, with a type fallback. */
+    val listTitleLine: ListLine = ListLine.NAME_AND_TYPE,
+    /** Live row second line. Default is MAC. NONE hides the line. */
+    val listSubtitleLine: ListLine = ListLine.MAC,
     /** Brief hold seconds (0 = Off). Linger only; does not decay RSSI. */
     val decaySec: Int = 10,
     /** Live Tune / Display panel. Always starts collapsed; not restored from last session. */
@@ -722,7 +722,18 @@ data class PersistedConfig(
     val arrivalKnownKeys: Set<String> = emptySet(),
     /** Stock filter-chip ids the operator removed. Catalog migrates do not put these back. */
     val hiddenPresetIds: Set<String> = emptySet(),
-)
+    val scanLabelDefaultsMigrated: Boolean = false,
+) {
+    fun withNameFirstScanLabels(): PersistedConfig {
+        if (scanLabelDefaultsMigrated) return this
+        val layout = if (settings.listTitleLine == ListLine.MAC && settings.listSubtitleLine == ListLine.NAME_AND_TYPE) {
+            settings.copy(listTitleLine = ListLine.NAME_AND_TYPE, listSubtitleLine = ListLine.MAC)
+        } else {
+            settings
+        }
+        return copy(settings = layout, scanLabelDefaultsMigrated = true)
+    }
+}
 
 data class RssiSample(
     val at: Long,
@@ -818,7 +829,7 @@ data class Sighting(
     fun listTitle(signatureNames: List<String> = emptyList()): String {
         val advertised = name.trim()
         if (advertised.isNotEmpty() && !advertised.equals(mac, ignoreCase = true)) return advertised
-        if (kind == RadioKind.WIFI) return if (hiddenSsid) "<hidden>" else mac
+        if (kind == RadioKind.WIFI) return if (hiddenSsid) "Hidden SSID" else "Unnamed Wi-Fi access point"
         return DeviceExplain.listLabel(this, signatureNames) ?: "unnamed LE"
     }
 
@@ -826,7 +837,7 @@ data class Sighting(
     fun advertisedName(): String {
         val advertised = name.trim()
         if (advertised.isNotEmpty() && !advertised.equals(mac, ignoreCase = true)) return advertised
-        if (kind == RadioKind.WIFI) return if (hiddenSsid) "<hidden>" else mac
+        if (kind == RadioKind.WIFI) return if (hiddenSsid) "Hidden SSID" else "Unnamed Wi-Fi access point"
         return "unnamed LE"
     }
 
