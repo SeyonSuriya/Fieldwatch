@@ -37,6 +37,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
     var targetRun by remember(selectedId) { mutableStateOf<String?>(null) }
     var targetEvidence by remember(selectedId) { mutableStateOf<String?>(null) }
     var checkPreview by remember(selectedId) { mutableStateOf<CheckEvaluation?>(null) }
+    var openedEvidenceId by remember(selectedId) { mutableStateOf<String?>(null) }
     var checkError by remember(selectedId) { mutableStateOf<String?>(null) }
     var discoveryPreview by remember(selectedId) { mutableStateOf<ServiceDiscoveryReport?>(null) }
     var devicePreview by remember(selectedId) { mutableStateOf<DeviceValidationReport?>(null) }
@@ -83,6 +84,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                     }
                 } else {
                     val editable = selected.closedAt == null && !busy
+                    val evidenceById = remember(selected.evidence) { selected.evidence.associateBy { it.id } }
                     TextButton(onClick = { vm.select(null) }, enabled = !busy) { Text("All engagements") }
                     SectionCard(selected.name) {
                         Text(selected.scope)
@@ -135,7 +137,13 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                             selected.evidence.filter { it.assetId == asset.id }.forEach { evidence ->
                                 HorizontalDivider()
                                 Text(evidence.title, style = MaterialTheme.typography.titleSmall)
-                                if (evidence.source == "reference-fixture-comparison") SavedFixtureComparison(evidence) else Text(evidence.text)
+                                when (evidence.source) {
+                                    "reference-fixture-comparison" -> SavedFixtureComparison(evidence)
+                                    "versioned-check-evaluation", "service-discovery" -> {
+                                        OutlinedButton(onClick = { openedEvidenceId = evidence.id }) { Text("Open saved review") }
+                                    }
+                                    else -> Text(evidence.text)
+                                }
                                 Text("Source: ${evidence.source} · catalog ${evidence.catalogVersion}\nSHA-256: ${evidence.sha256}", style = MaterialTheme.typography.bodySmall)
                                 if (AssessmentChecks.supports(evidence.source)) OutlinedButton(onClick = {
                                     runCatching { AssessmentChecks.evaluate(selected, evidence.id, System.currentTimeMillis()) }
@@ -158,7 +166,12 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                                 Text(finding.description)
                                 Text(if (finding.checkId == null) "Supported by ${finding.evidenceIds.size} evidence note(s). Operator assessment."
                                     else "Check ${finding.checkId} v${finding.checkVersion} · ${finding.evidenceIds.size} evidence links. Confidence applies only to the stated condition.", style = MaterialTheme.typography.bodySmall)
-                                finding.evidenceIds.forEach { id -> Text("Evidence: $id", style = MaterialTheme.typography.bodySmall) }
+                                finding.evidenceIds.forEach { id ->
+                                    val linked = evidenceById[id]
+                                    if (linked != null) {
+                                        TextButton(onClick = { openedEvidenceId = linked.id }) { Text(linked.title) }
+                                    }
+                                }
                             }
                         }
                     }
@@ -166,19 +179,15 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
             }
         }
     }
+    selected?.let { engagement ->
+        engagement.evidence.firstOrNull { it.id == openedEvidenceId }?.let { evidence ->
+            SavedEvidenceDialog(engagement, evidence, onDismiss = { openedEvidenceId = null })
+        }
+    }
     discoveryPreview?.let { report ->
         AlertDialog(onDismissRequest = { discoveryPreview = null }, title = { Text("Software and vulnerability candidates") },
             text = { Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text("${report.address}:${report.port} | ${report.protocol}")
-                Text("Advertised software: ${report.product ?: "Unknown"} ${report.advertisedVersion.orEmpty()}")
-                Text(report.explanation)
-                report.candidates.forEach { candidate ->
-                    HorizontalDivider()
-                    Text("${candidate.cve} | UNVERIFIED VERSION MATCH", style = MaterialTheme.typography.titleSmall)
-                    Text(candidate.title)
-                    Text(candidate.requirements)
-                    Text("Vendor fix release: ${candidate.vendorFixRelease} | ${candidate.reference}")
-                }
+                DiscoveryReviewContent(report)
                 Text("Saving adds evidence-linked suspected findings for candidates. No exploit is executed.")
             } },
             confirmButton = { TextButton(onClick = { vm.saveServiceDiscovery(report.sourceEvidenceId); discoveryPreview = null }, enabled = !busy) { Text("Save discovery review") } },
@@ -199,34 +208,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
         dismissButton = { TextButton(onClick = { operatorPreview = null }) { Text("Cancel") } }) }
     checkPreview?.let { preview -> AlertDialog(onDismissRequest = { checkPreview = null }, title = { Text("Saved-observation checks v${preview.registryVersion}") },
         text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            preview.httpAccess?.let { observation ->
-                Text("HTTP ${observation.status} on HEAD /", style = MaterialTheme.typography.titleSmall)
-                Text(observation.interpretation)
-            }
-            when (val observation = preview.bluetoothAccess) {
-                is BluetoothAccessObservation.Ble -> {
-                    Text("BLE GATT properties", style = MaterialTheme.typography.titleSmall)
-                    Text("${observation.services} services and ${observation.characteristics} characteristics retained. ${observation.omittedAttributes} attributes omitted.")
-                    Text("${observation.readable} readable, ${observation.writeWithResponse} writable with response, ${observation.writeWithoutResponse} writable without response, ${observation.subscriptions} supporting notifications or indications.")
-                    Text("Declared properties describe available operations. Authentication and encryption requirements can vary by attribute.")
-                    Text("Recorded GATT rejections: ${observation.authenticationRejections} authentication, ${observation.encryptionRejections} encryption. ${observation.omittedEvents} events omitted.")
-                }
-                is BluetoothAccessObservation.Classic -> {
-                    Text("Classic Bluetooth service identities", style = MaterialTheme.typography.titleSmall)
-                    Text(observation.source ?: "UUID source unavailable")
-                    observation.observedAt?.let { Text(DateFormat.getDateTimeInstance().format(Date(it))) }
-                    observation.recognizedServices.forEach { Text(it) }
-                    Text("${observation.otherUuids} other UUIDs retained. ${observation.omittedUuids} omitted.")
-                    Text("Service availability and authorization require separate verification.")
-                }
-                null -> Unit
-            }
-            preview.results.forEach { result ->
-                val check = AssessmentChecks.definition(result.checkId)
-                Text("${check.title} · ${result.outcome}", style = MaterialTheme.typography.titleSmall)
-                Text(result.explanation)
-                if (result.outcome == CheckOutcome.CONDITION_OBSERVED) Text("${check.severity} · ${check.confidence}\n${check.remediation}")
-            }
+            CheckReviewContent(preview)
             Text(if (preview.bluetoothAccess != null) "Saving links these observations to the Bluetooth session."
                 else "Saving links this review to the inspection and records new findings for observed conditions.")
         } },
@@ -268,6 +250,122 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
         "delete" -> ConfirmAssessmentDialog("Delete engagement?", "Permanently removes this record and its evidence from the app. Export a full report first if you need a copy. Existing exported copies are not deleted.",
             "Delete", { dialog = null }) { vm.delete(); dialog = null }
     }
+}
+
+@Composable
+private fun DiscoveryReviewContent(report: ServiceDiscoveryReport) {
+    Text("${report.address}:${report.port} | ${report.protocol}")
+    Text("Advertised software: ${report.product ?: "Unknown"} ${report.advertisedVersion.orEmpty()}")
+    Text(report.explanation)
+    report.candidates.forEach { candidate ->
+        HorizontalDivider()
+        Text("${candidate.cve} | UNVERIFIED VERSION MATCH", style = MaterialTheme.typography.titleSmall)
+        Text(candidate.title)
+        Text(candidate.requirements)
+        Text("Vendor fix release: ${candidate.vendorFixRelease} | ${candidate.reference}")
+    }
+}
+
+@Composable
+private fun CheckReviewContent(preview: CheckEvaluation) {
+    preview.httpAccess?.let { observation ->
+        Text("HTTP ${observation.status} on HEAD /", style = MaterialTheme.typography.titleSmall)
+        Text(observation.interpretation)
+    }
+    when (val observation = preview.bluetoothAccess) {
+        is BluetoothAccessObservation.Ble -> {
+            Text("BLE GATT properties", style = MaterialTheme.typography.titleSmall)
+            Text("${observation.services} services and ${observation.characteristics} characteristics retained. ${observation.omittedAttributes} attributes omitted.")
+            Text("${observation.readable} readable, ${observation.writeWithResponse} writable with response, ${observation.writeWithoutResponse} writable without response, ${observation.subscriptions} supporting notifications or indications.")
+            Text("Declared properties describe available operations. Authentication and encryption requirements can vary by attribute.")
+            Text("Recorded GATT rejections: ${observation.authenticationRejections} authentication, ${observation.encryptionRejections} encryption. ${observation.omittedEvents} events omitted.")
+        }
+        is BluetoothAccessObservation.Classic -> {
+            Text("Classic Bluetooth service identities", style = MaterialTheme.typography.titleSmall)
+            Text(observation.source ?: "UUID source unavailable")
+            observation.observedAt?.let { Text(DateFormat.getDateTimeInstance().format(Date(it))) }
+            observation.recognizedServices.forEach { Text(it) }
+            Text("${observation.otherUuids} other UUIDs retained. ${observation.omittedUuids} omitted.")
+            Text("Service availability and authorization require separate verification.")
+        }
+        null -> Unit
+    }
+    preview.results.forEach { result ->
+        val check = AssessmentChecks.definitions.firstOrNull { it.id == result.checkId && it.version == result.checkVersion }
+        Text("${check?.title ?: result.checkId} · ${result.outcome.name.lowercase().replace('_', ' ')}", style = MaterialTheme.typography.titleSmall)
+        Text(result.explanation)
+        if (check != null && result.outcome == CheckOutcome.CONDITION_OBSERVED) Text("${check.severity} · ${check.confidence}\n${check.remediation}")
+    }
+}
+
+@Composable
+private fun SavedEvidenceDialog(engagement: AssessmentEngagement, evidence: AssessmentEvidence, onDismiss: () -> Unit) {
+    val isReview = evidence.source == "versioned-check-evaluation" || evidence.source == "service-discovery"
+    val check = remember(evidence) {
+        if (evidence.source == "versioned-check-evaluation") runCatching {
+            kotlinx.serialization.json.Json.decodeFromString<CheckEvaluation>(evidence.text)
+                .takeIf { it.format == "fieldwatch-check-evaluation" && it.formatVersion == 1 }
+        }.getOrNull() else null
+    }
+    val discovery = remember(evidence) {
+        if (evidence.source == "service-discovery") runCatching {
+            kotlinx.serialization.json.Json.decodeFromString<ServiceDiscoveryReport>(evidence.text)
+                .takeIf { it.format == "fieldwatch-service-discovery" && it.version == 1 }
+        }.getOrNull() else null
+    }
+    val sourceId = check?.sourceEvidenceId ?: discovery?.sourceEvidenceId
+    val sourceHash = check?.sourceSha256 ?: discovery?.sourceSha256
+    val reviewAssetId = check?.assetId ?: discovery?.assetId
+    val source = remember(engagement.evidence, evidence) {
+        engagement.evidence.firstOrNull {
+            it.id == sourceId && it.id != evidence.id && it.assetId == evidence.assetId &&
+                reviewAssetId == evidence.assetId && it.sha256 == sourceHash
+        }
+    }
+    var showSource by remember(evidence.id) { mutableStateOf(false) }
+    var showRaw by remember(evidence.id) { mutableStateOf(false) }
+    val viewed = if (showSource) source ?: evidence else evidence
+    val close = { if (showSource) showSource = false else onDismiss() }
+    val reviewScroll = rememberScrollState()
+    val sourceScroll = rememberScrollState()
+    AlertDialog(
+        onDismissRequest = close,
+        title = { Text(viewed.title) },
+        text = {
+            Column(Modifier.verticalScroll(if (showSource) sourceScroll else reviewScroll),
+                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(DateFormat.getDateTimeInstance().format(Date(viewed.capturedAt)), style = MaterialTheme.typography.bodySmall)
+                if (!showSource && (check != null || discovery != null)) {
+                    if (source != null) {
+                        OutlinedButton(onClick = { showSource = true }) { Text("Open source evidence") }
+                    } else {
+                        Text("The linked source is unavailable or its recorded hash differs.")
+                    }
+                }
+                when {
+                    showSource -> Text(viewed.text)
+                    check != null -> {
+                        Text("Check registry version ${check.registryVersion}")
+                        CheckReviewContent(check)
+                    }
+                    discovery != null -> {
+                        Text("Advisory catalog version ${discovery.catalogVersion}")
+                        DiscoveryReviewContent(discovery)
+                    }
+                    else -> {
+                        if (isReview) Text("Showing the stored record because this review format could not be opened.")
+                        Text(viewed.text)
+                    }
+                }
+                if (!showSource && (check != null || discovery != null)) {
+                    TextButton(onClick = { showRaw = !showRaw }) { Text(if (showRaw) "Hide saved JSON" else "Show saved JSON") }
+                    if (showRaw) Text(evidence.text)
+                }
+                Text("SHA-256: ${viewed.sha256}", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = { TextButton(onClick = close) { Text(if (showSource) "Back to review" else "Done") } },
+    )
 }
 
 @Composable
