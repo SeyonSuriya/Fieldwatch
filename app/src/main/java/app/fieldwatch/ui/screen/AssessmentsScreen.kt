@@ -98,6 +98,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                         Text(selected.scope)
                         Text("${selected.assets.size} targets · ${selected.runs.size} observations · ${selected.evidence.size} evidence notes · ${selected.findings.size} findings")
                         Text(if (selected.closedAt == null) "Open" else "Closed · read-only")
+                        OutlinedButton(onClick = { dialog = "target-coverage" }, enabled = !busy) { Text("View target coverage") }
                         OutlinedButton(onClick = { dialog = "asset" }, enabled = editable) { Text("Add target") }
                         OutlinedButton(onClick = { dialog = "fixture-comparison" }, enabled = editable) { Text("Compare reference lab fixtures") }
                         OutlinedButton(onClick = {
@@ -225,6 +226,12 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
         confirmButton = { TextButton(onClick = { vm.validateDeviceEvidence(preview.sourceEvidenceId); devicePreview = null }, enabled = !busy) { Text("Save lab validation") } },
         dismissButton = { TextButton(onClick = { devicePreview = null }) { Text("Cancel") } }) }
     when (dialog) {
+        "target-coverage" -> selected?.let { engagement ->
+            AssessmentCoverageDialog(engagement, onDismiss = { dialog = null }) { evidenceId ->
+                dialog = null
+                openedEvidenceId = evidenceId
+            }
+        }
         "fixture-comparison" -> selected?.let { engagement -> FixtureComparisonDialog(engagement, onDismiss = { dialog = null }) { exposedId, protectedId ->
             vm.saveFixtureComparison(exposedId, protectedId); dialog = null
         } }

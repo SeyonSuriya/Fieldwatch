@@ -259,6 +259,38 @@ class AssessmentStoreTest {
         assertEquals(reviewed, reopened.archive.value.engagements.single { it.id == engagement })
     }
 
+    @Test fun coverageDistinguishesTcpResultsCapturesAndReviewsOfEachSource() = runBlocking {
+        val store = store(File(temp.newFolder(), "vault.bin"))
+        store.load()
+        val engagement = store.create("Lab", "Authorized fixtures")
+        val address = "192.168.1.1"
+        store.saveNetworkReport(engagement, NetworkEvidenceReport(scope = address, ports = listOf(80, 443), network = "Lab",
+            startedAt = 1, endedAt = 5, cancelled = false,
+            observations = listOf(TcpObservation(address, 80, "open", 4), TcpObservation(address, 443, "timeout", 5))), 94)
+        val http = serviceReport().copy(attemptedRequestHex = ServiceInspection.hex(ServiceInspection.request(address, 80)))
+        store.saveServiceReport(engagement, http, 94)
+        val first = store.archive.value.engagements.single().evidence.single { it.source == "service-inspection" }
+        store.evaluateEvidence(engagement, first.id, 94)
+        store.saveServiceDiscovery(engagement, first.id)
+        store.saveServiceReport(engagement, http.copy(startedAt = 30, endedAt = 40, outcome = "timeout", receivedHex = ""), 94)
+        store.saveWifiSecurity(engagement, wifiReport(), 94)
+
+        val saved = store.archive.value.engagements.single()
+        val coverage = AssessmentCoverage.summarize(saved)
+        val network = coverage.single { it.asset.transport == AssessmentTransport.NETWORK }
+        val httpEndpoint = network.services.single { it.port == 80 }
+        assertEquals("open", httpEndpoint.latestTcp?.outcome)
+        assertEquals("timeout", httpEndpoint.latestInspection?.outcome)
+        assertEquals(1, httpEndpoint.capturedResponses)
+        assertNull(network.services.single { it.port == 443 }.latestInspection)
+        val pending = network.pendingReviews.single()
+        assertEquals(httpEndpoint.latestInspection?.evidenceId, pending.evidenceId)
+        assertTrue(pending.checks && pending.discovery)
+        val wifiPending = coverage.single { it.asset.transport == AssessmentTransport.WIFI }.pendingReviews.single()
+        assertTrue(wifiPending.checks)
+        assertFalse(wifiPending.discovery)
+    }
+
     @Test fun cleartextEvaluationConfirmsOnlyTheTransportCondition() = runBlocking {
         val file = File(temp.newFolder(), "vault.bin")
         val store = store(file)
