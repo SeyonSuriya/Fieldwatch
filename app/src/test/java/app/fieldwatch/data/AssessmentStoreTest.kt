@@ -202,7 +202,8 @@ class AssessmentStoreTest {
         val evaluation = saved.evidence.single { it.source == "versioned-check-evaluation" }
         val report = kotlinx.serialization.json.Json.decodeFromString<CheckEvaluation>(evaluation.text)
         assertEquals(source.sha256, report.sourceSha256)
-        assertEquals(4, report.results.size)
+        assertEquals(CheckOutcome.INCONCLUSIVE, report.results.single { it.checkId == "wifi-pmf-optional" }.outcome)
+        assertEquals(CheckOutcome.INCONCLUSIVE, report.results.single { it.checkId == "wifi-psk-sae-compatibility" }.outcome)
         assertEquals("wifi-open", finding.checkId)
         assertEquals(1, finding.checkVersion)
         assertEquals(FindingConfidence.SUSPECTED, finding.confidence)

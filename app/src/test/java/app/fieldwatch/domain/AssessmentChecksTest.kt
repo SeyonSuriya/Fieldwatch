@@ -28,7 +28,7 @@ class AssessmentChecksTest {
 
     @Test fun registryIdentifiersAreUniqueAndVersioned() {
         assertEquals(AssessmentChecks.definitions.size, AssessmentChecks.definitions.map { it.id }.distinct().size)
-        assertEquals(3, wifi("[ESS]").registryVersion)
+        assertEquals(4, wifi("[ESS]").registryVersion)
         assertTrue(wifi("[ESS]").results.all { it.checkVersion == 1 })
     }
 
@@ -91,6 +91,25 @@ class AssessmentChecksTest {
     @Test fun wpa1TransitionIsFlaggedButWpa2AndSaeAreNotWpa1() {
         assertEquals(CheckOutcome.CONDITION_OBSERVED, wifi("[WPA-PSK-TKIP][RSN-PSK-CCMP][ESS]").outcome("wifi-wpa1"))
         assertEquals(CheckOutcome.NOT_OBSERVED, wifi("[WPA2-PSK-CCMP][RSN-SAE-CCMP][ESS]").outcome("wifi-wpa1"))
+    }
+
+    @Test fun managementFrameProtectionDistinguishesRequiredOptionalAndUnknown() {
+        val rsn = "[WPA2-PSK-CCMP-128][RSN-PSK-CCMP-128][ESS][WPS]"
+        assertEquals(CheckOutcome.CONDITION_OBSERVED, wifi("$rsn[MFPC]").outcome("wifi-pmf-optional"))
+        assertEquals(CheckOutcome.NOT_OBSERVED, wifi("$rsn[MFPR][MFPC]").outcome("wifi-pmf-optional"))
+        listOf(rsn, "$rsn[MFPR]", "[MFPC][ESS]", "$rsn[MFPC][").forEach {
+            assertEquals(CheckOutcome.INCONCLUSIVE, wifi(it).outcome("wifi-pmf-optional"))
+        }
+    }
+
+    @Test fun personalTransitionNeedsExactAuthenticationMethodsInRsnFields() {
+        val id = "wifi-psk-sae-compatibility"
+        assertEquals(CheckOutcome.CONDITION_OBSERVED, wifi("[RSN-PSK+SAE-CCMP][MFPC][ESS]").outcome(id))
+        assertEquals(CheckOutcome.CONDITION_OBSERVED, wifi("[RSN-PSK+SAE-CCMP-128][MFPC][ESS]").outcome(id))
+        assertEquals(CheckOutcome.CONDITION_OBSERVED, wifi("[RSN-PSK-CCMP][RSN-SAE-CCMP][ESS]").outcome(id))
+        assertEquals(CheckOutcome.NOT_OBSERVED, wifi("[RSN-SAE-CCMP][MFPC][MFPR][ESS]").outcome(id))
+        assertEquals(CheckOutcome.NOT_OBSERVED, wifi("[RSN-NOTPSK+SAE-CCMP][ESS]").outcome(id))
+        assertEquals(CheckOutcome.INCONCLUSIVE, wifi("[RSN-PSK+SAE-CCMP][ESS][").outcome(id))
     }
     @Test fun openIsAnAdvertisementConcernNotConfirmedVulnerability() {
         assertEquals(CheckOutcome.CONDITION_OBSERVED, wifi("[ESS]").outcome("wifi-open"))

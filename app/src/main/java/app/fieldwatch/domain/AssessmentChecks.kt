@@ -36,10 +36,13 @@ data class CheckEvaluation(
 
 /** Offline interpretation of saved observations. No network or exploitation side effects. */
 object AssessmentChecks {
-    const val VERSION = 3
+    const val VERSION = 4
     private val json = Json
     private const val TLS_REF = "https://www.rfc-editor.org/rfc/rfc8996"
     private const val WIFI_REF = "https://csrc.nist.gov/pubs/sp/800/153/final"
+    private const val ANDROID_WIFI_REF = "https://android.googlesource.com/platform/packages/modules/Wifi/+/refs/heads/main/framework/java/android/net/wifi/util/ScanResultUtil.java"
+    private const val WIFI_CIPHER = "(?:(?:CCMP|GCMP)(?:[-_](?:128|256))?|TKIP|NONE)"
+    private val rsnAuthentication = Regex("(?:RSN|WPA2)-([A-Z0-9_/]+(?:\\+[A-Z0-9_/]+)*)-$WIFI_CIPHER(?:\\+$WIFI_CIPHER)*")
     val definitions = listOf(
         CheckDefinition("wifi-wep", "WEP protection advertised", FindingSeverity.MEDIUM, FindingConfidence.SUSPECTED,
             "Replace WEP with supported WPA2/WPA3 protection; verify AP configuration and isolate legacy equipment.", listOf(WIFI_REF)),
@@ -49,6 +52,10 @@ object AssessmentChecks {
             "Confirm intended guest/public use. Use supported link encryption and application TLS; isolate untrusted clients.", listOf(WIFI_REF)),
         CheckDefinition("wifi-wps", "WPS advertisement review", FindingSeverity.INFORMATIONAL, FindingConfidence.SUSPECTED,
             "Review whether WPS is needed. An advertisement does not establish PIN enrollment, missing rate limits or exploitability.", listOf(WIFI_REF)),
+        CheckDefinition("wifi-pmf-optional", "Management frame protection advertised as optional", FindingSeverity.LOW, FindingConfidence.SUSPECTED,
+            "Verify the access point policy and require protected management frames where client compatibility allows.", listOf(ANDROID_WIFI_REF)),
+        CheckDefinition("wifi-psk-sae-compatibility", "PSK and SAE authentication advertised together", FindingSeverity.INFORMATIONAL, FindingConfidence.SUSPECTED,
+            "Review whether clients still need WPA2 compatibility. Verify the access point configuration before changing modes.", listOf(ANDROID_WIFI_REF)),
         CheckDefinition("http-cleartext", "HTTP response observed over cleartext TCP", FindingSeverity.LOW, FindingConfidence.CONFIRMED,
             "Prefer HTTPS and review whether this cleartext endpoint is needed. No sensitive content or credentials were tested.", listOf("https://www.rfc-editor.org/rfc/rfc9110#section-17.1")),
         CheckDefinition("http-basic-cleartext", "Basic authentication challenge on cleartext HTTP", FindingSeverity.MEDIUM, FindingConfidence.SUSPECTED,
@@ -117,7 +124,32 @@ object AssessmentChecks {
                 else "Open-link condition was not established. Unknown and OWE transition flags require review."),
             result("wifi-wps", if (!wellFormed || "WPS" in tokens) CheckOutcome.INCONCLUSIVE else CheckOutcome.NOT_OBSERVED,
                 if ("WPS" in tokens) "WPS is advertised. Enrollment method, lockout and exploitability were not tested; no vulnerability is inferred."
-                else "No WPS exploitability assessment was performed."))
+                else "No WPS exploitability assessment was performed.")) + wifiCompatibility(tokens, wellFormed)
+    }
+
+    private fun wifiCompatibility(tokens: List<String>, wellFormed: Boolean): List<CheckResult> {
+        val rsnTokens = tokens.filter { it.startsWith("RSN-") || it.startsWith("WPA2-") }
+        val pmfCapable = "MFPC" in tokens
+        val pmfRequired = "MFPR" in tokens
+        val pmf = when {
+            !wellFormed || rsnTokens.isEmpty() -> CheckOutcome.INCONCLUSIVE to "No usable RSN advertisement was captured."
+            pmfRequired && !pmfCapable -> CheckOutcome.INCONCLUSIVE to "The capture reports PMF required without the capability flag."
+            pmfRequired -> CheckOutcome.NOT_OBSERVED to "The advertisement marks protected management frames as required."
+            pmfCapable -> CheckOutcome.CONDITION_OBSERVED to "The advertisement contains the PMF capability flag only."
+            else -> CheckOutcome.INCONCLUSIVE to "The capture contains neither PMF flag. Verify the access point policy separately."
+        }
+
+        val parsedMethods = rsnTokens.map { token -> rsnAuthentication.matchEntire(token)?.groupValues?.get(1)?.split('+') }
+        val methods = parsedMethods.filterNotNull().flatten().toSet()
+        val compatibility = when {
+            !wellFormed || methods.isEmpty() -> CheckOutcome.INCONCLUSIVE to "No recognized RSN authentication methods were captured."
+            "PSK" in methods && "SAE" in methods -> CheckOutcome.CONDITION_OBSERVED to
+                "The same access point advertisement lists both PSK and SAE. Verify which mode each client negotiates."
+            parsedMethods.any { it == null } -> CheckOutcome.INCONCLUSIVE to "Some advertised RSN authentication methods could not be interpreted."
+            else -> CheckOutcome.NOT_OBSERVED to "The recognized RSN fields do not list both PSK and SAE."
+        }
+        return listOf(result("wifi-pmf-optional", pmf.first, pmf.second),
+            result("wifi-psk-sae-compatibility", compatibility.first, compatibility.second))
     }
 
     private val redirects = setOf(301, 302, 303, 307, 308)
