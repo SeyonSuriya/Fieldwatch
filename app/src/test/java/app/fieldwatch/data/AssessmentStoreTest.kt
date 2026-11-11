@@ -289,6 +289,14 @@ class AssessmentStoreTest {
         val wifiPending = coverage.single { it.asset.transport == AssessmentTransport.WIFI }.pendingReviews.single()
         assertTrue(wifiPending.checks)
         assertFalse(wifiPending.discovery)
+
+        val pendingChecks = network.pendingReviews.filter { it.checks }.map { it.evidenceId }
+        val pendingDiscovery = network.pendingReviews.filter { it.discovery }.map { it.evidenceId }
+        assertEquals(EvidenceReviewBatch(1, 0, 0), store.evaluateEvidenceBatch(engagement, pendingChecks, 94))
+        assertEquals(1, store.saveServiceDiscoveries(engagement, pendingDiscovery))
+        val updated = AssessmentCoverage.summarize(store.archive.value.engagements.single())
+        assertTrue(updated.single { it.asset.id == network.asset.id }.pendingReviews.isEmpty())
+        assertEquals(listOf(wifiPending), updated.single { it.asset.transport == AssessmentTransport.WIFI }.pendingReviews)
     }
 
     @Test fun cleartextEvaluationConfirmsOnlyTheTransportCondition() = runBlocking {

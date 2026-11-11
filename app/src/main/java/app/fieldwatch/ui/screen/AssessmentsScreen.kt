@@ -227,10 +227,23 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
         dismissButton = { TextButton(onClick = { devicePreview = null }) { Text("Cancel") } }) }
     when (dialog) {
         "target-coverage" -> selected?.let { engagement ->
-            AssessmentCoverageDialog(engagement, onDismiss = { dialog = null }) { evidenceId ->
-                dialog = null
-                openedEvidenceId = evidenceId
-            }
+            AssessmentCoverageDialog(
+                engagement = engagement,
+                canSave = engagement.closedAt == null && !busy,
+                onDismiss = { dialog = null },
+                onOpenEvidence = { evidenceId ->
+                    dialog = null
+                    openedEvidenceId = evidenceId
+                },
+                onSaveChecks = { ids ->
+                    dialog = null
+                    vm.evaluateEvidenceBatch(engagement.id, ids)
+                },
+                onSaveDiscovery = { ids ->
+                    dialog = null
+                    vm.saveServiceDiscoveries(engagement.id, ids)
+                },
+            )
         }
         "fixture-comparison" -> selected?.let { engagement -> FixtureComparisonDialog(engagement, onDismiss = { dialog = null }) { exposedId, protectedId ->
             vm.saveFixtureComparison(exposedId, protectedId); dialog = null

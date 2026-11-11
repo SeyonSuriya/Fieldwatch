@@ -34,8 +34,11 @@ import kotlinx.coroutines.withContext
 @Composable
 internal fun AssessmentCoverageDialog(
     engagement: AssessmentEngagement,
+    canSave: Boolean,
     onDismiss: () -> Unit,
     onOpenEvidence: (String) -> Unit,
+    onSaveChecks: (List<String>) -> Unit,
+    onSaveDiscovery: (List<String>) -> Unit,
 ) {
     val coverage by produceState<List<TargetCoverage>?>(null, engagement) {
         value = null
@@ -68,8 +71,20 @@ internal fun AssessmentCoverageDialog(
                             }
                         }
                     } else {
+                        val pendingChecks = target.pendingReviews.filter { it.checks }.map { it.evidenceId }
+                        val pendingDiscovery = target.pendingReviews.filter { it.discovery }.map { it.evidenceId }
                         item {
                             Text(target.asset.identifier)
+                            if (pendingChecks.isNotEmpty()) {
+                                OutlinedButton(onClick = { onSaveChecks(pendingChecks) }, enabled = canSave) {
+                                    Text("Save pending checks (${pendingChecks.size})")
+                                }
+                            }
+                            if (pendingDiscovery.isNotEmpty()) {
+                                OutlinedButton(onClick = { onSaveDiscovery(pendingDiscovery) }, enabled = canSave) {
+                                    Text("Save pending discovery (${pendingDiscovery.size})")
+                                }
+                            }
                             if (target.unreadableNetworkRecords > 0) {
                                 Text("${target.unreadableNetworkRecords} network records could not be interpreted.")
                             }
