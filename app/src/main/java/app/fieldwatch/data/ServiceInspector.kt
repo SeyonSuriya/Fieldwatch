@@ -7,6 +7,7 @@ import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
 import java.security.MessageDigest
+import java.security.cert.X509Certificate
 import javax.net.ssl.SSLException
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
@@ -39,6 +40,7 @@ object ServiceInspector {
         var protocol: String? = null
         var cipher: String? = null
         var certificate: String? = null
+        var certificateDetails: TlsCertificateDetails? = null
         var attemptedRequest = ""
         val captured = ByteArrayOutputStream()
         try {
@@ -59,7 +61,19 @@ object ServiceInspector {
                     if (requestedTlsProtocol != null && session.protocol != requestedTlsProtocol) {
                         throw SSLException("Negotiated protocol differs from the requested version")
                     }
-                    val fingerprint = ServiceInspection.hex(MessageDigest.getInstance("SHA-256").digest(session.peerCertificates.first().encoded))
+                    val leaf = session.peerCertificates.first()
+                    val fingerprint = ServiceInspection.hex(MessageDigest.getInstance("SHA-256").digest(leaf.encoded))
+                    certificateDetails = (leaf as? X509Certificate)?.let {
+                        val issuer = it.issuerX500Principal.name
+                        TlsCertificateDetails(
+                            issuer = issuer.take(TlsCertificateDetails.MAX_ISSUER_CHARS).map { char ->
+                                if (char.isISOControl()) ' ' else char
+                            }.joinToString(""),
+                            notBefore = it.notBefore.time,
+                            notAfter = it.notAfter.time,
+                            issuerTruncated = issuer.length > TlsCertificateDetails.MAX_ISSUER_CHARS,
+                        )
+                    }
                     protocol = session.protocol
                     cipher = session.cipherSuite
                     certificate = fingerprint
@@ -94,6 +108,6 @@ object ServiceInspector {
             attemptedRequestHex = attemptedRequest,
             receivedHex = ServiceInspection.hex(captured.toByteArray()), captureLimitReached = captured.size() == ServiceInspection.MAX_CAPTURE,
             tlsProtocol = protocol, tlsCipher = cipher, certificateSha256 = certificate,
-            requestedTlsProtocol = requestedTlsProtocol).also { it.validate() }
+            requestedTlsProtocol = requestedTlsProtocol, certificateDetails = certificateDetails).also { it.validate() }
     }
 }

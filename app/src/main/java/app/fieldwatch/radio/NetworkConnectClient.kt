@@ -93,7 +93,7 @@ class NetworkConnectClient(context: Context) {
             when {
                 !expired.get() -> report
                 requestedTlsProtocol != null -> report.copy(outcome = "timeout",
-                    tlsProtocol = null, tlsCipher = null, certificateSha256 = null)
+                    tlsProtocol = null, tlsCipher = null, certificateSha256 = null, certificateDetails = null)
                 else -> report.copy(outcome = "timeout")
             }
         } finally {

@@ -49,6 +49,17 @@ class ServiceInspectionTest {
         rejected { report().copy(probe = ServiceProbe.TLS, outcome = "observed").validate() }
         report().copy(probe = ServiceProbe.TLS, outcome = "tls-validation-or-handshake-failed").validate()
     }
+
+    @Test fun certificateDetailsRequireVerifiedTlsAndAnOrderedValidityPeriod() {
+        val details = TlsCertificateDetails("CN=Lab issuer", 1, 30)
+        val verified = report().copy(probe = ServiceProbe.TLS, outcome = "observed", tlsProtocol = "TLSv1.3",
+            tlsCipher = "TLS_AES_128_GCM_SHA256", certificateSha256 = "a".repeat(64), certificateDetails = details)
+        verified.validate()
+        rejected { report().copy(certificateDetails = details).validate() }
+        rejected { verified.copy(outcome = "tls-validation-or-handshake-failed").validate() }
+        rejected { verified.copy(certificateDetails = details.copy(notAfter = 0)).validate() }
+        rejected { verified.copy(certificateDetails = details.copy(issuer = "CN=Lab\nIssuer")).validate() }
+    }
     @Test fun wifiPreservesUnknownAndRejectsInventedAnalysis() {
         wifi().validate()
         wifi().copy(capabilities = null, analysis = WifiSecurityAnalysis.describe(null)).validate()

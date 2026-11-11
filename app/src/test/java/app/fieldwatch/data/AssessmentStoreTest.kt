@@ -266,7 +266,8 @@ class AssessmentStoreTest {
         val base = serviceReport().copy(probe = ServiceProbe.TLS, receivedHex = "", outcome = "tls-version-unavailable")
         val attempts = ServiceInspection.TLS_AUDIT_VERSIONS.map { base.copy(requestedTlsProtocol = it) }.toMutableList()
         attempts[2] = attempts[2].copy(outcome = "observed", tlsProtocol = "TLSv1.2",
-            tlsCipher = "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", certificateSha256 = "a".repeat(64))
+            tlsCipher = "TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256", certificateSha256 = "a".repeat(64),
+            certificateDetails = TlsCertificateDetails("CN=Lab issuer", 1, 100))
         rejects { store.saveTlsAudit(engagement, attempts.dropLast(1), 94) }
         rejects { store.saveTlsAudit(engagement, attempts.map { if (it.requestedTlsProtocol == "TLSv1") it.copy(port = 443) else it }, 94) }
         rejects { store.saveTlsAudit(engagement, attempts.map { if (it.requestedTlsProtocol == "TLSv1.2") it.copy(tlsProtocol = "TLSv1.3") else it }, 94) }
@@ -279,6 +280,8 @@ class AssessmentStoreTest {
         assertEquals(1, AssessmentCoverage.summarize(saved).single().services.single().capturedResponses)
         val unavailable = AssessmentChecks.evaluate(saved, saved.evidence.first().id, 1000)
         assertEquals(CheckOutcome.INCONCLUSIVE, unavailable.results.single { it.checkId == "tls-legacy" }.outcome)
+        assertNull(unavailable.certificateDetails)
+        assertEquals(attempts[2].certificateDetails, AssessmentChecks.evaluate(saved, saved.evidence[2].id, 1000).certificateDetails)
         assertTrue(saved.access.isEmpty())
     }
 

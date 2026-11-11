@@ -32,6 +32,7 @@ data class CheckEvaluation(
     val results: List<CheckResult>,
     val httpAccess: HttpAccessObservation? = null,
     val bluetoothAccess: BluetoothAccessObservation? = null,
+    val certificateDetails: TlsCertificateDetails? = null,
 )
 
 /** Offline interpretation of saved observations. No network or exploitation side effects. */
@@ -78,6 +79,7 @@ object AssessmentChecks {
         require(engagement.runs.any { it.id == evidence.runId && it.assetId == asset.id && it.status == AssessmentRunStatus.RECORDED })
         var httpAccess: HttpAccessObservation? = null
         var bluetoothAccess: BluetoothAccessObservation? = null
+        var certificateDetails: TlsCertificateDetails? = null
         val results = when (evidence.source) {
             "wifi-security-advertisement" -> {
                 val report = json.decodeFromString<WifiSecurityReport>(evidence.text).also { it.validate() }
@@ -93,12 +95,14 @@ object AssessmentChecks {
                 require(asset.transport == AssessmentTransport.NETWORK && asset.identifier == report.address) { "Service evidence target mismatch." }
                 val parsed = HttpEvidence.read(report)
                 httpAccess = parsed?.let(::accessObservation)
+                certificateDetails = report.certificateDetails
                 service(report, parsed)
             }
         }
         require(now > 0)
         return CheckEvaluation(registryVersion = VERSION, sourceEvidenceId = evidence.id, sourceSha256 = evidence.sha256,
-            assetId = asset.id, evaluatedAt = now, results = results, httpAccess = httpAccess, bluetoothAccess = bluetoothAccess)
+            assetId = asset.id, evaluatedAt = now, results = results, httpAccess = httpAccess,
+            bluetoothAccess = bluetoothAccess, certificateDetails = certificateDetails)
     }
 
     private fun result(id: String, outcome: CheckOutcome, text: String) = CheckResult(id, checkVersion = definition(id).version, outcome = outcome, explanation = text)

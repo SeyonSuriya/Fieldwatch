@@ -6,6 +6,23 @@ import kotlinx.serialization.Serializable
 enum class ServiceProbe { BANNER, HTTP_HEAD, TLS, HTTPS_HEAD }
 
 @Serializable
+data class TlsCertificateDetails(
+    val issuer: String,
+    val notBefore: Long,
+    val notAfter: Long,
+    val issuerTruncated: Boolean = false,
+) {
+    fun validate() {
+        require(issuer.length <= MAX_ISSUER_CHARS && issuer.none { it.isISOControl() })
+        require(notBefore <= notAfter)
+    }
+
+    companion object {
+        const val MAX_ISSUER_CHARS = 1024
+    }
+}
+
+@Serializable
 data class ServiceInspectionReport(
     val format: String = "fieldwatch-service-inspection",
     val version: Int = 1,
@@ -23,6 +40,7 @@ data class ServiceInspectionReport(
     val tlsCipher: String? = null,
     val certificateSha256: String? = null,
     val requestedTlsProtocol: String? = null,
+    val certificateDetails: TlsCertificateDetails? = null,
 ) {
     fun validate() {
         require(NetworkScope.hosts(address) == listOf(address))
@@ -40,6 +58,10 @@ data class ServiceInspectionReport(
         require(probe != ServiceProbe.TLS || outcome != "observed" || tlsProtocol != null)
         require(listOfNotNull(tlsProtocol, tlsCipher).all { it.length in 1..160 })
         require(certificateSha256 == null || certificateSha256.matches(Regex("[0-9a-f]{64}")))
+        certificateDetails?.let {
+            require(tlsProtocol != null && outcome != "tls-validation-or-handshake-failed")
+            it.validate()
+        }
         requestedTlsProtocol?.let { requested ->
             require(probe == ServiceProbe.TLS && requested in ServiceInspection.TLS_AUDIT_VERSIONS)
             require(receivedHex.isEmpty())

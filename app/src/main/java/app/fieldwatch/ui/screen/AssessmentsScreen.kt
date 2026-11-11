@@ -354,6 +354,7 @@ private fun DiscoveryReviewContent(report: ServiceDiscoveryReport) {
 
 @Composable
 private fun CheckReviewContent(preview: CheckEvaluation) {
+    preview.certificateDetails?.let { TlsCertificateDetailsContent(it) }
     preview.httpAccess?.let { observation ->
         Text("HTTP ${observation.status} on HEAD /", style = MaterialTheme.typography.titleSmall)
         Text(observation.interpretation)

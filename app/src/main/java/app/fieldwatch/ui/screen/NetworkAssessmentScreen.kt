@@ -19,6 +19,7 @@ import app.fieldwatch.ui.NestedTopBar
 import app.fieldwatch.ui.ProtectAssessmentScreen
 import app.fieldwatch.ui.component.SectionCard
 import java.util.Date
+import java.time.Instant
 
 @Composable
 fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel = viewModel()) {
@@ -109,6 +110,7 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
                         }
                         Text("${attempt.requestedTlsProtocol} · $result")
                         attempt.tlsCipher?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        attempt.certificateDetails?.let { TlsCertificateDetailsContent(it) }
                     }
                     Button(onClick = vm::saveTlsAudit, enabled = !busy) { Text("Save TLS audit evidence") }
                 }
@@ -119,6 +121,7 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
                     Text("Evidence destination: $serviceEngagement (fixed when inspection started)")
                     if (result.attemptedRequestHex.isNotEmpty()) Text("Request attempted:\n${ServiceInspection.display(result.attemptedRequestHex)}")
                     if (result.tlsProtocol != null) Text("Verified TLS session: ${result.tlsProtocol} · ${result.tlsCipher}\nLeaf certificate SHA-256: ${result.certificateSha256}")
+                    result.certificateDetails?.let { TlsCertificateDetailsContent(it) }
                     if (result.captureLimitReached) Text("Capture limit reached; additional bytes may exist.")
                     if (result.receivedHex.isNotEmpty()) {
                         Text("Response preview (control bytes replaced):\n${ServiceInspection.display(result.receivedHex)}")
@@ -171,3 +174,12 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
 }
 
 private data class PendingInspection(val engagement: String, val address: String, val port: String, val probe: ServiceProbe, val audit: Boolean = false)
+
+@Composable
+internal fun TlsCertificateDetailsContent(details: TlsCertificateDetails) {
+    val issuer = details.issuer.ifEmpty { "Empty issuer name" }
+    Text("Leaf certificate issuer")
+    Text(if (details.issuerTruncated) "$issuer (truncated)" else issuer, style = MaterialTheme.typography.bodySmall)
+    Text("Valid from (UTC) ${Instant.ofEpochMilli(details.notBefore)}", style = MaterialTheme.typography.bodySmall)
+    Text("Valid until (UTC) ${Instant.ofEpochMilli(details.notAfter)}", style = MaterialTheme.typography.bodySmall)
+}
