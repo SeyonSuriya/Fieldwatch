@@ -98,6 +98,36 @@ class ServiceDiscoveryTest {
         }
     }
 
+    @Test fun batchDeduplicatesSingleReviewsAndRejectsInvalidSourcesAtomically() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val id = store.create("Lab", "Authorized synthetic fixtures")
+        val otherId = store.create("Other lab", "Separate engagement")
+        store.saveServiceReport(id, report("Server: Apache/2.4.49"), 1)
+        store.saveServiceReport(id, report("Server: Apache/2.4.50"), 1)
+        store.saveServiceReport(otherId, report("Server: Apache/2.4.49"), 1)
+        val sources = store.archive.value.engagements.single { it.id == id }.evidence.map { it.id }
+        val unrelated = store.archive.value.engagements.single { it.id == otherId }.evidence.single().id
+        assertTrue(store.saveServiceDiscovery(id, sources.first()))
+        val before = store.archive.value
+        try {
+            store.saveServiceDiscoveries(id, listOf(sources.last(), unrelated))
+            fail("Batch accepted evidence from another engagement")
+        } catch (_: IllegalArgumentException) { }
+        assertEquals(before, store.archive.value)
+
+        assertEquals(1, store.saveServiceDiscoveries(id, sources + sources.last()))
+        val saved = store.archive.value.engagements.single { it.id == id }
+        assertEquals(2, saved.evidence.count { it.source == "service-discovery" })
+        assertEquals(3, saved.findings.size)
+        assertTrue(saved.findings.all { it.confidence == FindingConfidence.SUSPECTED })
+        val reopened = store(file)
+        reopened.load()
+        assertEquals(0, reopened.saveServiceDiscoveries(id, sources))
+        assertEquals(saved, reopened.archive.value.engagements.single { it.id == id })
+    }
+
     @Test fun persistsLinkedSuspectedCandidatesDeduplicatesAndExports() = runBlocking {
         val file = File(temp.newFolder(), "vault.bin")
         val store = store(file)

@@ -173,29 +173,47 @@ class AssessmentStore(
             "service-inspection", json.encodeToString(report), report.startedAt, report.endedAt, catalogVersion)
     }
 
-    suspend fun saveServiceDiscovery(engagementId: String, evidenceId: String): Boolean {
-        var recorded = false
+    suspend fun saveServiceDiscovery(engagementId: String, evidenceId: String): Boolean =
+        saveServiceDiscoveries(engagementId, listOf(evidenceId)) == 1
+
+    suspend fun saveServiceDiscoveries(engagementId: String, evidenceIds: List<String>): Int {
+        val sourceIds = evidenceIds.distinct()
+        require(sourceIds.isNotEmpty()) { "Select saved service inspections." }
+        var recorded = 0
         edit(engagementId) { engagement ->
-            val report = ServiceDiscovery.evaluate(engagement, evidenceId, now())
-            if (engagement.evidence.filter { it.source == "service-discovery" }.any {
-                val old = json.decodeFromString<ServiceDiscoveryReport>(it.text)
-                old.sourceEvidenceId == evidenceId && old.sourceSha256 == report.sourceSha256 &&
-                    old.version == report.version && old.catalogVersion == report.catalogVersion
-            }) return@edit engagement
-            val run = AssessmentRun(id(), report.assetId, report.evaluatedAt, checkId = "service-discovery",
-                checkVersion = ServiceDiscovery.VERSION, status = AssessmentRunStatus.RECORDED, endedAt = report.evaluatedAt)
-            val body = json.encodeToString(report)
-            val evidence = AssessmentEvidence(id(), report.assetId, run.id, "Service identity and advisory candidates", body,
-                AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), report.evaluatedAt,
-                source = "service-discovery", appVersion = appVersion, catalogVersion = ServiceDiscovery.CATALOG_VERSION)
-            val candidates = report.candidates.map { candidate -> AssessmentFinding(
-                id(), report.assetId, "Unverified candidate: ${candidate.cve}",
-                "${candidate.title}. Advertised ${report.product} ${report.advertisedVersion}. ${candidate.requirements} Vendor notice: ${candidate.reference}. No exploit or access validation was performed.",
-                FindingSeverity.HIGH, FindingConfidence.SUSPECTED, listOf(evidenceId, evidence.id), report.evaluatedAt,
-                checkId = candidate.cve, checkVersion = ServiceDiscovery.CATALOG_VERSION)
+            val inspectionIds = engagement.evidence.filter { it.source == "service-inspection" }.map { it.id }.toSet()
+            require(sourceIds.all { it in inspectionIds }) { "Select saved service inspections from this engagement." }
+            val existing = engagement.evidence.filter { it.source == "service-discovery" }
+                .map { json.decodeFromString<ServiceDiscoveryReport>(it.text) }
+                .filter { it.version == ServiceDiscovery.VERSION && it.catalogVersion == ServiceDiscovery.CATALOG_VERSION }
+                .map { it.sourceEvidenceId to it.sourceSha256 }.toSet()
+            val evaluatedAt = now()
+            val reports = sourceIds.map { ServiceDiscovery.evaluate(engagement, it, evaluatedAt) }
+                .filterNot { (it.sourceEvidenceId to it.sourceSha256) in existing }
+            if (reports.isEmpty()) return@edit engagement
+
+            val runs = ArrayList<AssessmentRun>(reports.size)
+            val evidence = ArrayList<AssessmentEvidence>(reports.size)
+            val findings = mutableListOf<AssessmentFinding>()
+            for (report in reports) {
+                val run = AssessmentRun(id(), report.assetId, evaluatedAt, checkId = "service-discovery",
+                    checkVersion = ServiceDiscovery.VERSION, status = AssessmentRunStatus.RECORDED, endedAt = evaluatedAt)
+                val body = json.encodeToString(report)
+                val review = AssessmentEvidence(id(), report.assetId, run.id, "Service identity and advisory candidates", body,
+                    AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), evaluatedAt,
+                    source = "service-discovery", appVersion = appVersion, catalogVersion = ServiceDiscovery.CATALOG_VERSION)
+                runs += run
+                evidence += review
+                findings += report.candidates.map { candidate -> AssessmentFinding(
+                    id(), report.assetId, "Unverified candidate: ${candidate.cve}",
+                    "${candidate.title}. Advertised ${report.product} ${report.advertisedVersion}. ${candidate.requirements} Vendor notice: ${candidate.reference}. No exploit or access validation was performed.",
+                    FindingSeverity.HIGH, FindingConfidence.SUSPECTED, listOf(report.sourceEvidenceId, review.id), evaluatedAt,
+                    checkId = candidate.cve, checkVersion = ServiceDiscovery.CATALOG_VERSION)
+                }
             }
-            recorded = true
-            engagement.copy(runs = engagement.runs + run, evidence = engagement.evidence + evidence, findings = engagement.findings + candidates)
+            recorded = reports.size
+            engagement.copy(runs = engagement.runs + runs, evidence = engagement.evidence + evidence,
+                findings = engagement.findings + findings)
         }
         return recorded
     }

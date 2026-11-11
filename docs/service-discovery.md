@@ -16,6 +16,13 @@ It does not execute an exploit or infer access from a version string.
 5. Full exports include the source, source hash, identity, advisory references,
    catalog version/review date and findings. Summaries retain aggregate counts.
 
+Fieldwatch 1.1.28 also adds **Save discovery reviews** to the engagement screen.
+This action saves discovery reviews for the listed inspection count in one vault
+update. The result tells you how many reviews were saved or already existed.
+Single and batch reviews share the same duplicate detection. If any selected
+source fails validation or the vault limit would be exceeded, the batch saves
+zero reviews. Use the per-inspection review for smaller selections.
+
 The review reuses existing captured bytes; it starts no new connection. HTTP
 recognition requires a completed, recorded HEAD exchange parsed as a single strict
 response. Duplicate Server fields and ambiguous/malformed identities do not match.
