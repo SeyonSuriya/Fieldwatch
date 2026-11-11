@@ -28,8 +28,51 @@ class AssessmentChecksTest {
 
     @Test fun registryIdentifiersAreUniqueAndVersioned() {
         assertEquals(AssessmentChecks.definitions.size, AssessmentChecks.definitions.map { it.id }.distinct().size)
-        assertEquals(2, wifi("[ESS]").registryVersion)
+        assertEquals(3, wifi("[ESS]").registryVersion)
         assertTrue(wifi("[ESS]").results.all { it.checkVersion == 1 })
+    }
+
+    @Test fun bluetoothReviewDistinguishesDeclaredPropertiesFromRecordedAccessRejections() {
+        val address = "AA:BB:CC:DD:EE:01"
+        val state = BluetoothToolState(BluetoothToolTarget(address, AssessmentTransport.BLE),
+            services = listOf(GattServiceInfo("service", BluetoothToolValues.uuid("180F"), true,
+                listOf(GattCharacteristicInfo("value", BluetoothToolValues.uuid("2A19"),
+                    BluetoothToolValues.READ or BluetoothToolValues.WRITE_NO_RESPONSE)))),
+            omittedAttributes = 2,
+            events = listOf(
+                BluetoothToolEvent(1, 1, 3, BluetoothEventKind.ERROR,
+                    "READ_CHARACTERISTIC: Android status 5 (insufficient authentication); no success inferred.", status = 5),
+                BluetoothToolEvent(2, 1, 3, BluetoothEventKind.ERROR, "Unrelated link error", status = 15),
+            ))
+        val source = engagement(BluetoothToolReports.report(state, 4), "bluetooth-protocol-session", AssessmentTransport.BLE, address)
+        val evaluation = AssessmentChecks.evaluate(source, "evidence", 10)
+        val observed = evaluation.bluetoothAccess as BluetoothAccessObservation.Ble
+        assertEquals(1, observed.readable)
+        assertEquals(1, observed.writeWithoutResponse)
+        assertEquals(0, observed.writeWithResponse)
+        assertEquals(2, observed.omittedAttributes)
+        assertEquals(1, observed.authenticationRejections)
+        assertEquals(0, observed.encryptionRejections)
+        assertTrue(evaluation.results.isEmpty())
+        rejected { AssessmentChecks.evaluate(source.copy(assets = source.assets.map { it.copy(transport = AssessmentTransport.BLUETOOTH_CLASSIC) }), "evidence", 10) }
+    }
+
+    @Test fun classicReviewNamesKnownUuidsAndRetainsCacheProvenance() {
+        val address = "AA:BB:CC:DD:EE:01"
+        val state = BluetoothToolState(BluetoothToolTarget(address, AssessmentTransport.BLUETOOTH_CLASSIC),
+            classicUuids = listOf(BluetoothToolValues.uuid("1101"), "1101", "12345678-1234-5678-1234-56789abcdef0"),
+            classicUuidSource = "android-cache", classicUuidReadAt = 3, omittedUuids = 1)
+        val source = engagement(BluetoothToolReports.report(state, 4), "bluetooth-protocol-session",
+            AssessmentTransport.BLUETOOTH_CLASSIC, address)
+        val evaluation = AssessmentChecks.evaluate(source, "evidence", 10)
+        val observed = evaluation.bluetoothAccess as BluetoothAccessObservation.Classic
+        assertEquals(listOf("Serial Port"), observed.recognizedServices)
+        assertEquals(1, observed.otherUuids)
+        assertEquals(1, observed.omittedUuids)
+        assertEquals("Android UUID cache", observed.source)
+        assertEquals(3L, observed.observedAt)
+        assertTrue(evaluation.results.isEmpty())
+        assertEquals(evaluation, Json.decodeFromString<CheckEvaluation>(Json.encodeToString(evaluation)))
     }
     @Test fun legacyFindingJsonWithoutCheckMetadataRemainsReadable() {
         val original = AssessmentFinding("finding", "asset", "Operator finding", "Manual assessment", FindingSeverity.LOW,

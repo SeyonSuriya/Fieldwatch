@@ -198,13 +198,32 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                 Text("HTTP ${observation.status} on HEAD /", style = MaterialTheme.typography.titleSmall)
                 Text(observation.interpretation)
             }
+            when (val observation = preview.bluetoothAccess) {
+                is BluetoothAccessObservation.Ble -> {
+                    Text("BLE GATT properties", style = MaterialTheme.typography.titleSmall)
+                    Text("${observation.services} services and ${observation.characteristics} characteristics retained. ${observation.omittedAttributes} attributes omitted.")
+                    Text("${observation.readable} readable, ${observation.writeWithResponse} writable with response, ${observation.writeWithoutResponse} writable without response, ${observation.subscriptions} supporting notifications or indications.")
+                    Text("Declared properties describe available operations. Authentication and encryption requirements can vary by attribute.")
+                    Text("Recorded GATT rejections: ${observation.authenticationRejections} authentication, ${observation.encryptionRejections} encryption. ${observation.omittedEvents} events omitted.")
+                }
+                is BluetoothAccessObservation.Classic -> {
+                    Text("Classic Bluetooth service identities", style = MaterialTheme.typography.titleSmall)
+                    Text(observation.source ?: "UUID source unavailable")
+                    observation.observedAt?.let { Text(DateFormat.getDateTimeInstance().format(Date(it))) }
+                    observation.recognizedServices.forEach { Text(it) }
+                    Text("${observation.otherUuids} other UUIDs retained. ${observation.omittedUuids} omitted.")
+                    Text("Service availability and authorization require separate verification.")
+                }
+                null -> Unit
+            }
             preview.results.forEach { result ->
                 val check = AssessmentChecks.definition(result.checkId)
                 Text("${check.title} · ${result.outcome}", style = MaterialTheme.typography.titleSmall)
                 Text(result.explanation)
                 if (result.outcome == CheckOutcome.CONDITION_OBSERVED) Text("${check.severity} · ${check.confidence}\n${check.remediation}")
             }
-            Text("Saving links this review to the inspection and records new findings for observed conditions.")
+            Text(if (preview.bluetoothAccess != null) "Saving links these observations to the Bluetooth session."
+                else "Saving links this review to the inspection and records new findings for observed conditions.")
         } },
         confirmButton = { TextButton(onClick = { vm.evaluateEvidence(preview.sourceEvidenceId); checkPreview = null }, enabled = !busy) { Text("Save check results") } },
         dismissButton = { TextButton(onClick = { checkPreview = null }) { Text("Cancel") } }) }

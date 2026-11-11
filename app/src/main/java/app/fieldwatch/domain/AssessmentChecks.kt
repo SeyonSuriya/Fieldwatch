@@ -31,11 +31,12 @@ data class CheckEvaluation(
     val evaluatedAt: Long,
     val results: List<CheckResult>,
     val httpAccess: HttpAccessObservation? = null,
+    val bluetoothAccess: BluetoothAccessObservation? = null,
 )
 
 /** Offline interpretation of saved observations. No network or exploitation side effects. */
 object AssessmentChecks {
-    const val VERSION = 2
+    const val VERSION = 3
     private val json = Json
     private const val TLS_REF = "https://www.rfc-editor.org/rfc/rfc8996"
     private const val WIFI_REF = "https://csrc.nist.gov/pubs/sp/800/153/final"
@@ -60,7 +61,7 @@ object AssessmentChecks {
             "Verify SSH server settings and require SSH version 2. A banner is a server claim; no SSH login or downgrade was attempted.", listOf("https://www.rfc-editor.org/rfc/rfc4253#section-5")),
     )
     fun definition(id: String) = definitions.single { it.id == id }
-    fun supports(source: String) = source in setOf("wifi-security-advertisement", "service-inspection")
+    fun supports(source: String) = source in setOf("wifi-security-advertisement", "service-inspection", "bluetooth-protocol-session")
 
     fun evaluate(engagement: AssessmentEngagement, evidenceId: String, now: Long): CheckEvaluation {
         val evidence = engagement.evidence.singleOrNull { it.id == evidenceId } ?: error("Select saved evidence.")
@@ -69,11 +70,16 @@ object AssessmentChecks {
         val asset = engagement.assets.single { it.id == evidence.assetId }
         require(engagement.runs.any { it.id == evidence.runId && it.assetId == asset.id && it.status == AssessmentRunStatus.RECORDED })
         var httpAccess: HttpAccessObservation? = null
+        var bluetoothAccess: BluetoothAccessObservation? = null
         val results = when (evidence.source) {
             "wifi-security-advertisement" -> {
                 val report = json.decodeFromString<WifiSecurityReport>(evidence.text).also { it.validate() }
                 require(asset.transport == AssessmentTransport.WIFI && asset.identifier.equals(report.bssid, true)) { "Wi-Fi evidence target mismatch." }
                 wifi(report)
+            }
+            "bluetooth-protocol-session" -> {
+                bluetoothAccess = BluetoothEvidenceReview.evaluate(json.decodeFromString<BluetoothEvidenceReport>(evidence.text), asset)
+                emptyList()
             }
             else -> {
                 val report = json.decodeFromString<ServiceInspectionReport>(evidence.text).also { it.validate() }
@@ -85,7 +91,7 @@ object AssessmentChecks {
         }
         require(now > 0)
         return CheckEvaluation(registryVersion = VERSION, sourceEvidenceId = evidence.id, sourceSha256 = evidence.sha256,
-            assetId = asset.id, evaluatedAt = now, results = results, httpAccess = httpAccess)
+            assetId = asset.id, evaluatedAt = now, results = results, httpAccess = httpAccess, bluetoothAccess = bluetoothAccess)
     }
 
     private fun result(id: String, outcome: CheckOutcome, text: String) = CheckResult(id, checkVersion = definition(id).version, outcome = outcome, explanation = text)

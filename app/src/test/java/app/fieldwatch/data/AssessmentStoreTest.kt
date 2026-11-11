@@ -249,7 +249,7 @@ class AssessmentStoreTest {
         assertEquals(0, reopened.evaluateEvidence(engagement, source.id, 94))
         val updated = reopened.archive.value.engagements.single()
         assertEquals(saved.findings, updated.findings)
-        assertEquals(listOf(1, 2), updated.evidence.filter { it.source == "versioned-check-evaluation" }
+        assertEquals(listOf(1, AssessmentChecks.VERSION), updated.evidence.filter { it.source == "versioned-check-evaluation" }
             .map { Json.decodeFromString<CheckEvaluation>(it.text).registryVersion })
     }
 
@@ -614,9 +614,20 @@ class AssessmentStoreTest {
         assertTrue(saved.findings.isEmpty())
         assertTrue(saved.access.isEmpty())
         assertFalse(file.readBytes().toString(Charsets.ISO_8859_1).contains("AABBCC"))
+        val source = saved.evidence.single()
+        assertEquals(0, first.evaluateEvidence(id, source.id, 94))
+        val reviewed = first.archive.value.engagements.single()
+        val derived = reviewed.evidence.single { it.source == "versioned-check-evaluation" }
+        val review = Json.decodeFromString<CheckEvaluation>(derived.text)
+        assertEquals(source.id, review.sourceEvidenceId)
+        assertEquals(source.sha256, review.sourceSha256)
+        assertTrue(review.bluetoothAccess is BluetoothAccessObservation.Ble)
+        assertTrue(reviewed.findings.isEmpty() && reviewed.access.isEmpty())
         val second = store(file)
         second.load()
         assertEquals(first.archive.value, second.archive.value)
+        assertEquals(0, second.evaluateEvidence(id, source.id, 94))
+        assertEquals(reviewed, second.archive.value.engagements.single())
     }
 
     @Test fun protocolEvidenceRequiresMatchingTransportAndTargetInTheChosenEngagement() = runBlocking {
