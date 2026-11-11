@@ -1,9 +1,13 @@
 package app.fieldwatch.domain
 
+import java.time.Duration
+import java.time.Instant
 import kotlinx.serialization.Serializable
 
 @Serializable
 enum class ServiceProbe { BANNER, HTTP_HEAD, TLS, HTTPS_HEAD }
+
+enum class TlsCertificateValidity { NOT_YET_VALID, VALID, EXPIRING_SOON, EXPIRED }
 
 @Serializable
 data class TlsCertificateDetails(
@@ -17,8 +21,17 @@ data class TlsCertificateDetails(
         require(notBefore <= notAfter)
     }
 
+    fun validityAt(time: Long): TlsCertificateValidity = when {
+        time < notBefore -> TlsCertificateValidity.NOT_YET_VALID
+        time > notAfter -> TlsCertificateValidity.EXPIRED
+        Duration.between(Instant.ofEpochMilli(time), Instant.ofEpochMilli(notAfter)) <=
+            Duration.ofDays(EXPIRY_NOTICE_DAYS) -> TlsCertificateValidity.EXPIRING_SOON
+        else -> TlsCertificateValidity.VALID
+    }
+
     companion object {
         const val MAX_ISSUER_CHARS = 1024
+        const val EXPIRY_NOTICE_DAYS = 30L
     }
 }
 

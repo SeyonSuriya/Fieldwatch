@@ -153,6 +153,9 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                                     "versioned-check-evaluation", "service-discovery" -> {
                                         OutlinedButton(onClick = { openedEvidenceId = evidence.id }) { Text("Open saved review") }
                                     }
+                                    "service-inspection" -> {
+                                        OutlinedButton(onClick = { openedEvidenceId = evidence.id }) { Text("Open inspection") }
+                                    }
                                     else -> Text(evidence.text)
                                 }
                                 Text("Source: ${evidence.source} · catalog ${evidence.catalogVersion}\nSHA-256: ${evidence.sha256}", style = MaterialTheme.typography.bodySmall)
@@ -353,8 +356,10 @@ private fun DiscoveryReviewContent(report: ServiceDiscoveryReport) {
 }
 
 @Composable
-private fun CheckReviewContent(preview: CheckEvaluation) {
-    preview.certificateDetails?.let { TlsCertificateDetailsContent(it) }
+private fun CheckReviewContent(preview: CheckEvaluation, sourceInspectionEndedAt: Long? = null) {
+    preview.certificateDetails?.let {
+        TlsCertificateDetailsContent(it, preview.certificateInspectionEndedAt ?: sourceInspectionEndedAt)
+    }
     preview.httpAccess?.let { observation ->
         Text("HTTP ${observation.status} on HEAD /", style = MaterialTheme.typography.titleSmall)
         Text(observation.interpretation)
@@ -409,6 +414,8 @@ private fun SavedEvidenceDialog(engagement: AssessmentEngagement, evidence: Asse
                 reviewAssetId == evidence.assetId && it.sha256 == sourceHash
         }
     }
+    val sourceInspection = remember(source) { source?.decodeServiceInspection() }
+    val directInspection = remember(evidence) { evidence.decodeServiceInspection() }
     var showSource by remember(evidence.id) { mutableStateOf(false) }
     var showRaw by remember(evidence.id) { mutableStateOf(false) }
     val viewed = if (showSource) source ?: evidence else evidence
@@ -430,10 +437,13 @@ private fun SavedEvidenceDialog(engagement: AssessmentEngagement, evidence: Asse
                     }
                 }
                 when {
-                    showSource -> Text(viewed.text)
+                    showSource -> {
+                        sourceInspection?.let { report -> report.certificateDetails?.let { TlsCertificateDetailsContent(it, report.endedAt) } }
+                        Text(viewed.text)
+                    }
                     check != null -> {
                         Text("Check registry version ${check.registryVersion}")
-                        CheckReviewContent(check)
+                        CheckReviewContent(check, sourceInspection?.endedAt)
                     }
                     discovery != null -> {
                         Text("Advisory catalog version ${discovery.catalogVersion}")
@@ -441,6 +451,7 @@ private fun SavedEvidenceDialog(engagement: AssessmentEngagement, evidence: Asse
                     }
                     else -> {
                         if (isReview) Text("Showing the stored record because this review format could not be opened.")
+                        directInspection?.let { report -> report.certificateDetails?.let { TlsCertificateDetailsContent(it, report.endedAt) } }
                         Text(viewed.text)
                     }
                 }
@@ -454,6 +465,11 @@ private fun SavedEvidenceDialog(engagement: AssessmentEngagement, evidence: Asse
         confirmButton = { TextButton(onClick = close) { Text(if (showSource) "Back to review" else "Done") } },
     )
 }
+
+private fun AssessmentEvidence.decodeServiceInspection(): ServiceInspectionReport? =
+    if (source == "service-inspection") runCatching {
+        kotlinx.serialization.json.Json.decodeFromString<ServiceInspectionReport>(text).also { it.validate() }
+    }.getOrNull() else null
 
 @Composable
 private fun SavedFixtureComparison(evidence: AssessmentEvidence) {

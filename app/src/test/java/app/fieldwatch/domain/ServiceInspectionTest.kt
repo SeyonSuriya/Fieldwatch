@@ -60,6 +60,17 @@ class ServiceInspectionTest {
         rejected { verified.copy(certificateDetails = details.copy(notAfter = 0)).validate() }
         rejected { verified.copy(certificateDetails = details.copy(issuer = "CN=Lab\nIssuer")).validate() }
     }
+
+    @Test fun certificateValidityDistinguishesExpiryAndTheThirtyDayBoundary() {
+        val day = 86_400_000L
+        val certificate = TlsCertificateDetails("CN=Lab issuer", day, 90 * day)
+        assertEquals(TlsCertificateValidity.NOT_YET_VALID, certificate.validityAt(day - 1))
+        assertEquals(TlsCertificateValidity.VALID, certificate.validityAt(60 * day - 1))
+        assertEquals(TlsCertificateValidity.EXPIRING_SOON, certificate.validityAt(60 * day))
+        assertEquals(TlsCertificateValidity.EXPIRING_SOON, certificate.validityAt(90 * day))
+        assertEquals(TlsCertificateValidity.EXPIRED, certificate.validityAt(90 * day + 1))
+        assertEquals(TlsCertificateValidity.VALID, certificate.copy(notAfter = Long.MAX_VALUE).validityAt(day))
+    }
     @Test fun wifiPreservesUnknownAndRejectsInventedAnalysis() {
         wifi().validate()
         wifi().copy(capabilities = null, analysis = WifiSecurityAnalysis.describe(null)).validate()

@@ -281,7 +281,9 @@ class AssessmentStoreTest {
         val unavailable = AssessmentChecks.evaluate(saved, saved.evidence.first().id, 1000)
         assertEquals(CheckOutcome.INCONCLUSIVE, unavailable.results.single { it.checkId == "tls-legacy" }.outcome)
         assertNull(unavailable.certificateDetails)
-        assertEquals(attempts[2].certificateDetails, AssessmentChecks.evaluate(saved, saved.evidence[2].id, 1000).certificateDetails)
+        val verified = AssessmentChecks.evaluate(saved, saved.evidence[2].id, 1000)
+        assertEquals(attempts[2].certificateDetails, verified.certificateDetails)
+        assertEquals(attempts[2].endedAt, verified.certificateInspectionEndedAt)
         assertTrue(saved.access.isEmpty())
     }
 

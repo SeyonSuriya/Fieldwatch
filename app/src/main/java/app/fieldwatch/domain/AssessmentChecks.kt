@@ -33,6 +33,7 @@ data class CheckEvaluation(
     val httpAccess: HttpAccessObservation? = null,
     val bluetoothAccess: BluetoothAccessObservation? = null,
     val certificateDetails: TlsCertificateDetails? = null,
+    val certificateInspectionEndedAt: Long? = null,
 )
 
 /** Offline interpretation of saved observations. No network or exploitation side effects. */
@@ -80,6 +81,7 @@ object AssessmentChecks {
         var httpAccess: HttpAccessObservation? = null
         var bluetoothAccess: BluetoothAccessObservation? = null
         var certificateDetails: TlsCertificateDetails? = null
+        var certificateInspectionEndedAt: Long? = null
         val results = when (evidence.source) {
             "wifi-security-advertisement" -> {
                 val report = json.decodeFromString<WifiSecurityReport>(evidence.text).also { it.validate() }
@@ -96,13 +98,15 @@ object AssessmentChecks {
                 val parsed = HttpEvidence.read(report)
                 httpAccess = parsed?.let(::accessObservation)
                 certificateDetails = report.certificateDetails
+                certificateInspectionEndedAt = report.endedAt.takeIf { report.certificateDetails != null }
                 service(report, parsed)
             }
         }
         require(now > 0)
         return CheckEvaluation(registryVersion = VERSION, sourceEvidenceId = evidence.id, sourceSha256 = evidence.sha256,
             assetId = asset.id, evaluatedAt = now, results = results, httpAccess = httpAccess,
-            bluetoothAccess = bluetoothAccess, certificateDetails = certificateDetails)
+            bluetoothAccess = bluetoothAccess, certificateDetails = certificateDetails,
+            certificateInspectionEndedAt = certificateInspectionEndedAt)
     }
 
     private fun result(id: String, outcome: CheckOutcome, text: String) = CheckResult(id, checkVersion = definition(id).version, outcome = outcome, explanation = text)

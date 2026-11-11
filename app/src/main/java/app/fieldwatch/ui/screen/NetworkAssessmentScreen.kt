@@ -110,7 +110,7 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
                         }
                         Text("${attempt.requestedTlsProtocol} · $result")
                         attempt.tlsCipher?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
-                        attempt.certificateDetails?.let { TlsCertificateDetailsContent(it) }
+                        attempt.certificateDetails?.let { TlsCertificateDetailsContent(it, attempt.endedAt) }
                     }
                     Button(onClick = vm::saveTlsAudit, enabled = !busy) { Text("Save TLS audit evidence") }
                 }
@@ -121,7 +121,7 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
                     Text("Evidence destination: $serviceEngagement (fixed when inspection started)")
                     if (result.attemptedRequestHex.isNotEmpty()) Text("Request attempted:\n${ServiceInspection.display(result.attemptedRequestHex)}")
                     if (result.tlsProtocol != null) Text("Verified TLS session: ${result.tlsProtocol} · ${result.tlsCipher}\nLeaf certificate SHA-256: ${result.certificateSha256}")
-                    result.certificateDetails?.let { TlsCertificateDetailsContent(it) }
+                    result.certificateDetails?.let { TlsCertificateDetailsContent(it, result.endedAt) }
                     if (result.captureLimitReached) Text("Capture limit reached; additional bytes may exist.")
                     if (result.receivedHex.isNotEmpty()) {
                         Text("Response preview (control bytes replaced):\n${ServiceInspection.display(result.receivedHex)}")
@@ -176,8 +176,25 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
 private data class PendingInspection(val engagement: String, val address: String, val port: String, val probe: ServiceProbe, val audit: Boolean = false)
 
 @Composable
-internal fun TlsCertificateDetailsContent(details: TlsCertificateDetails) {
+internal fun TlsCertificateDetailsContent(details: TlsCertificateDetails, inspectionEndedAt: Long?) {
     val issuer = details.issuer.ifEmpty { "Empty issuer name" }
+    val checkedAt = remember(details, inspectionEndedAt) { System.currentTimeMillis() }
+    val validity = details.validityAt(checkedAt)
+    val status = when (validity) {
+        TlsCertificateValidity.NOT_YET_VALID -> "Captured certificate is not yet valid"
+        TlsCertificateValidity.EXPIRED -> "Captured certificate has expired"
+        TlsCertificateValidity.EXPIRING_SOON -> "Captured certificate expires within ${TlsCertificateDetails.EXPIRY_NOTICE_DAYS} days"
+        TlsCertificateValidity.VALID -> "Captured certificate is within its validity dates"
+    }
+    val statusColor = when (validity) {
+        TlsCertificateValidity.EXPIRED, TlsCertificateValidity.NOT_YET_VALID -> MaterialTheme.colorScheme.error
+        TlsCertificateValidity.EXPIRING_SOON -> MaterialTheme.colorScheme.tertiary
+        TlsCertificateValidity.VALID -> MaterialTheme.colorScheme.onSurface
+    }
+    Text(status, color = statusColor, style = MaterialTheme.typography.titleSmall)
+    Text(inspectionEndedAt?.let { "Inspection completed (UTC) ${Instant.ofEpochMilli(it)}" }
+        ?: "Inspection time unavailable", style = MaterialTheme.typography.bodySmall)
+    Text("Validity checked (UTC) ${Instant.ofEpochMilli(checkedAt)}", style = MaterialTheme.typography.bodySmall)
     Text("Leaf certificate issuer")
     Text(if (details.issuerTruncated) "$issuer (truncated)" else issuer, style = MaterialTheme.typography.bodySmall)
     Text("Valid from (UTC) ${Instant.ofEpochMilli(details.notBefore)}", style = MaterialTheme.typography.bodySmall)
