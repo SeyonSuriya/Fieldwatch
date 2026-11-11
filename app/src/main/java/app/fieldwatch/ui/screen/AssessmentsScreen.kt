@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.fieldwatch.domain.*
+import app.fieldwatch.ui.AssessmentExportFormat
 import app.fieldwatch.ui.AssessmentViewModel
 import app.fieldwatch.ui.ProtectAssessmentScreen
 import app.fieldwatch.ui.NestedTopBar
@@ -42,12 +43,19 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
     var discoveryPreview by remember(selectedId) { mutableStateOf<ServiceDiscoveryReport?>(null) }
     var devicePreview by remember(selectedId) { mutableStateOf<DeviceValidationReport?>(null) }
     var operatorPreview by remember(selectedId) { mutableStateOf<HandsetBaseline?>(null) }
-    val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json"), vm::writeReport)
+    val jsonExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(AssessmentExportFormat.JSON.mimeType), vm::writeReport)
+    val textExporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument(AssessmentExportFormat.TEXT.mimeType), vm::writeReport)
     LaunchedEffect(exportRequested) {
-        if (exportRequested) {
-            vm.exportLaunched()
-            try { exporter.launch("fieldwatch-assessment-${System.currentTimeMillis()}.json") }
-            catch (_: android.content.ActivityNotFoundException) { vm.exportFailed() }
+        val format = exportRequested ?: return@LaunchedEffect
+        vm.exportLaunched()
+        try {
+            val timestamp = System.currentTimeMillis()
+            when (format) {
+                AssessmentExportFormat.JSON -> jsonExporter.launch("fieldwatch-assessment-$timestamp.${format.extension}")
+                AssessmentExportFormat.TEXT -> textExporter.launch("fieldwatch-findings-$timestamp.${format.extension}")
+            }
+        } catch (_: android.content.ActivityNotFoundException) {
+            vm.exportFailed()
         }
     }
 
@@ -108,6 +116,7 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                         }
                         OutlinedButton(onClick = { vm.prepareReport(false) }, enabled = !busy) { Text("Export summary") }
                         OutlinedButton(onClick = { dialog = "full-export" }, enabled = !busy) { Text("Export full report") }
+                        OutlinedButton(onClick = { dialog = "findings-export" }, enabled = !busy) { Text("Export findings as text") }
                         if (selected.closedAt == null) TextButton(onClick = { dialog = "close" }, enabled = editable) { Text("Close engagement") }
                         TextButton(onClick = { dialog = "delete" }, enabled = !busy) { Text("Delete engagement") }
                     }
@@ -245,6 +254,9 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
         "full-export" -> ConfirmAssessmentDialog("Export full report?",
             "Includes target identifiers, scope, findings, all evidence notes and saved operator-phone metadata in unencrypted JSON. Save only to a destination you intend to trust.",
             "Export", { dialog = null }) { vm.prepareReport(true); dialog = null }
+        "findings-export" -> ConfirmAssessmentDialog("Export findings as text?",
+            "The unencrypted text file includes the engagement scope, target identifiers, finding descriptions and evidence references.",
+            "Export", { dialog = null }) { vm.prepareFindingsReport(); dialog = null }
         "close" -> ConfirmAssessmentDialog("Close engagement?", "Finish or cancel running observations first. Closed records remain exportable but cannot be edited.",
             "Close", { dialog = null }) { vm.close(); dialog = null }
         "delete" -> ConfirmAssessmentDialog("Delete engagement?", "Permanently removes this record and its evidence from the app. Export a full report first if you need a copy. Existing exported copies are not deleted.",

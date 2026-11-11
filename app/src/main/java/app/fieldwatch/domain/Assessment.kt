@@ -4,6 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.security.MessageDigest
+import java.time.Instant
 
 @Serializable
 enum class AssessmentTransport { WIFI, BLE, BLUETOOTH_CLASSIC, NETWORK }
@@ -232,5 +233,60 @@ object AssessmentReports {
                 operatorBaselineCount = engagement.operatorBaselines.size,
             ),
         ))
+    }
+
+    fun exportFindingsText(engagement: AssessmentEngagement, now: Long, appVersion: String): String {
+        AssessmentRules.validate(AssessmentArchive(engagements = listOf(engagement)))
+        val findings = engagement.findings.sortedByDescending { it.severity }
+        val sourceIds = findings.flatMap { it.evidenceIds }.distinct()
+        val references = sourceIds.withIndex().associate { it.value to "E${it.index + 1}" }
+        val evidenceById = engagement.evidence.associateBy { it.id }
+        val assetsById = engagement.assets.associateBy { it.id }
+        return buildString {
+            appendLine("Fieldwatch findings report")
+            appendField("Exported (UTC)", Instant.ofEpochMilli(now).toString())
+            appendField("App version", appVersion)
+            appendField("Engagement", engagement.name)
+            appendField("Authorized scope", engagement.scope)
+            appendLine()
+            appendLine("Findings (${findings.size})")
+            if (findings.isEmpty()) appendLine("No findings recorded.")
+            findings.forEachIndexed { index, finding ->
+                val asset = assetsById.getValue(finding.assetId)
+                appendLine()
+                appendLine("F${index + 1}  ${finding.severity} / ${finding.confidence}")
+                appendField("Title", finding.title)
+                appendField("Target", asset.label)
+                appendField("Target identifier", asset.identifier)
+                appendField("Transport", asset.transport.name)
+                appendField("Recorded (UTC)", Instant.ofEpochMilli(finding.createdAt).toString())
+                finding.checkId?.let { appendField("Check", "$it v${finding.checkVersion}") }
+                appendField("Description", finding.description)
+                appendField("Evidence references", finding.evidenceIds.distinct().joinToString(", ") { references.getValue(it) })
+            }
+            if (sourceIds.isNotEmpty()) {
+                appendLine()
+                appendLine("Evidence references (${sourceIds.size})")
+                for (id in sourceIds) {
+                    val evidence = evidenceById.getValue(id)
+                    appendLine()
+                    appendLine(references.getValue(id))
+                    appendField("Title", evidence.title)
+                    appendField("Evidence ID", evidence.id)
+                    appendField("Source", evidence.source)
+                    appendField("Captured (UTC)", Instant.ofEpochMilli(evidence.capturedAt).toString())
+                    appendField("SHA-256", evidence.sha256)
+                }
+            }
+        }
+    }
+
+    private fun StringBuilder.appendField(label: String, value: String) {
+        appendLine(label)
+        value.lineSequence().forEach { line ->
+            append("  ")
+            line.forEach { char -> append(if (char.isISOControl()) ' ' else char) }
+            appendLine()
+        }
     }
 }

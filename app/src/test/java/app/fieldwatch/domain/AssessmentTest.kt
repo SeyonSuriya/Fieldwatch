@@ -38,6 +38,30 @@ class AssessmentTest {
         assertTrue(parsed.disclosure.contains("unencrypted"))
     }
 
+    @Test fun textReportLinksFindingsToOneSourceEntryAndOmitsRawEvidence() {
+        val base = engagement()
+        val first = base.findings.single()
+        val lowerPriority = first.copy(id = "f-2", severity = FindingSeverity.LOW, confidence = FindingConfidence.CONFIRMED,
+            title = "Other finding", description = "Operator detail\r\nSecond line\u001b")
+        val report = AssessmentReports.exportFindingsText(base.copy(findings = listOf(lowerPriority, first)), 5, "test")
+        assertTrue(report.contains("F1  HIGH / SUSPECTED"))
+        assertTrue(report.contains("F2  LOW / CONFIRMED"))
+        assertEquals(2, report.lines().count { it == "  E1" })
+        assertEquals(1, report.lines().count { it == "E1" })
+        assertTrue(report.contains("Evidence ID\n  e-1"))
+        assertTrue(report.contains(base.evidence.single().sha256))
+        assertTrue(report.contains("  Operator detail\n  Second line "))
+        assertFalse(report.contains(base.evidence.single().text))
+        assertFalse(report.contains('\u001b'))
+    }
+
+    @Test fun textReportHandlesEngagementsWithoutFindings() {
+        val original = engagement()
+        val report = AssessmentReports.exportFindingsText(original.copy(findings = emptyList()), 5, "test")
+        assertTrue(report.contains("No findings recorded."))
+        assertFalse(report.contains(original.evidence.single().sha256))
+    }
+
     @Test fun findingEvidenceCannotReferToAnotherAsset() {
         val original = engagement()
         val invalid = original.copy(findings = original.findings.map { it.copy(assetId = "missing") })

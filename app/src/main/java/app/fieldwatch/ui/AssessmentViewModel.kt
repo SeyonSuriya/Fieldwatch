@@ -14,6 +14,11 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+enum class AssessmentExportFormat(val mimeType: String, val extension: String) {
+    JSON("application/json", "json"),
+    TEXT("text/plain", "txt"),
+}
+
 /** Assessment actions are separate from the live scanning ViewModel. */
 class AssessmentViewModel(application: Application) : AndroidViewModel(application) {
     private val app = application as FieldwatchApp
@@ -27,9 +32,10 @@ class AssessmentViewModel(application: Application) : AndroidViewModel(applicati
     val ready = mutableReady.asStateFlow()
     private val mutableNotice = MutableStateFlow<String?>(null)
     val notice = mutableNotice.asStateFlow()
-    private val mutableExportRequested = MutableStateFlow(false)
+    private val mutableExportRequested = MutableStateFlow<AssessmentExportFormat?>(null)
     val exportRequested = mutableExportRequested.asStateFlow()
-    private var pendingReport: String? = null
+    private data class PendingReport(val body: String, val format: AssessmentExportFormat)
+    private var pendingReport: PendingReport? = null
 
     init { reload() }
 
@@ -105,32 +111,40 @@ class AssessmentViewModel(application: Application) : AndroidViewModel(applicati
     fun close() = action { store.close(selectedId()) }
     fun delete() = action { store.delete(selectedId()); mutableSelected.value = null }
 
-    fun prepareReport(full: Boolean) = action {
-        check(pendingReport == null) { "Finish or cancel the current export first." }
-        val engagement = archive.value.engagements.single { it.id == selectedId() }
-        pendingReport = withContext(Dispatchers.Default) {
-            AssessmentReports.export(engagement, full, System.currentTimeMillis(), BuildConfig.VERSION_NAME)
-        }
-        mutableExportRequested.value = true
+    fun prepareReport(full: Boolean) = prepareExport(AssessmentExportFormat.JSON) { engagement, now ->
+        AssessmentReports.export(engagement, full, now, BuildConfig.VERSION_NAME)
     }
 
-    fun exportLaunched() { mutableExportRequested.value = false }
+    fun prepareFindingsReport() = prepareExport(AssessmentExportFormat.TEXT) { engagement, now ->
+        AssessmentReports.exportFindingsText(engagement, now, BuildConfig.VERSION_NAME)
+    }
+
+    private fun prepareExport(format: AssessmentExportFormat, render: (AssessmentEngagement, Long) -> String) = action {
+        check(pendingReport == null) { "Finish or cancel the current export first." }
+        val engagement = archive.value.engagements.single { it.id == selectedId() }
+        val body = withContext(Dispatchers.Default) { render(engagement, System.currentTimeMillis()) }
+        pendingReport = PendingReport(body, format)
+        mutableExportRequested.value = format
+    }
+
+    fun exportLaunched() { mutableExportRequested.value = null }
 
     fun writeReport(uri: Uri?) {
         val report = pendingReport
         pendingReport = null
-        mutableExportRequested.value = false
+        mutableExportRequested.value = null
         if (uri == null || report == null) return
         action {
             withContext(Dispatchers.IO) {
                 val output = app.contentResolver.openOutputStream(uri, "wt") ?: error("Could not open export destination.")
-                output.bufferedWriter(Charsets.UTF_8).use { it.write(report) }
+                output.bufferedWriter(Charsets.UTF_8).use { it.write(report.body) }
             }
-            mutableNotice.value = "Report exported. The destination contains an unencrypted JSON report."
+            val format = if (report.format == AssessmentExportFormat.JSON) "JSON" else "plain text"
+            mutableNotice.value = "Report exported. The destination contains an unencrypted $format report."
         }
     }
 
-    fun exportFailed() { pendingReport = null; mutableExportRequested.value = false; mutableNotice.value = "No document picker is available." }
+    fun exportFailed() { pendingReport = null; mutableExportRequested.value = null; mutableNotice.value = "No document picker is available." }
 
     private fun selectedId(): String = checkNotNull(mutableSelected.value) { "Select an engagement first." }
 
