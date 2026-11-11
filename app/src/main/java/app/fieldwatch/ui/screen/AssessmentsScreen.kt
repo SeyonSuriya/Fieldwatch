@@ -94,6 +94,11 @@ fun AssessmentsScreen(onBack: () -> Unit, onInventory: () -> Unit, onNetwork: ()
                             runCatching { app.fieldwatch.data.HandsetBaselineCollector.capture(context) }
                                 .onSuccess { operatorPreview = it }.onFailure { checkError = "Handset baseline unavailable: ${it.message}" }
                         }, enabled = editable) { Text("Review this phone's baseline") }
+                        val reviewableEvidence = selected.evidence.filter { AssessmentChecks.supports(it.source) }
+                        if (reviewableEvidence.isNotEmpty()) {
+                            OutlinedButton(onClick = { vm.evaluateEvidenceBatch(selected.id, reviewableEvidence.map { it.id }) },
+                                enabled = editable) { Text("Save evidence reviews (${reviewableEvidence.size})") }
+                        }
                         val serviceEvidence = selected.evidence.filter { it.source == "service-inspection" }
                         if (serviceEvidence.isNotEmpty()) {
                             OutlinedButton(onClick = { vm.saveServiceDiscoveries(selected.id, serviceEvidence.map { it.id }) },

@@ -16,6 +16,8 @@ import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 import java.util.UUID
 
+data class EvidenceReviewBatch(val savedReviews: Int, val existingReviews: Int, val newFindings: Int)
+
 /** Serialized, bounded, encrypted persistence. Failed reads never seed over an existing vault. */
 class AssessmentStore(
     private val file: File,
@@ -241,37 +243,58 @@ class AssessmentStore(
         }
     }
 
-    suspend fun evaluateEvidence(engagementId: String, evidenceId: String, catalogVersion: Int): Int {
-        var added = 0
+    suspend fun evaluateEvidence(engagementId: String, evidenceId: String, catalogVersion: Int): Int =
+        evaluateEvidenceBatch(engagementId, listOf(evidenceId), catalogVersion).newFindings
+
+    suspend fun evaluateEvidenceBatch(engagementId: String, evidenceIds: List<String>, catalogVersion: Int): EvidenceReviewBatch {
+        val sourceIds = evidenceIds.distinct()
+        require(sourceIds.isNotEmpty()) { "Select saved evidence with supported checks." }
+        var batch = EvidenceReviewBatch(0, 0, 0)
         edit(engagementId) { engagement ->
-            val evaluation = AssessmentChecks.evaluate(engagement, evidenceId, now())
-            // Immutable evidence + registry version identifies a reproducible evaluation.
-            val existing = engagement.evidence.filter { it.source == "versioned-check-evaluation" }.any {
-                val previous = json.decodeFromString<CheckEvaluation>(it.text)
-                previous.sourceEvidenceId == evidenceId && previous.sourceSha256 == evaluation.sourceSha256 && previous.registryVersion == AssessmentChecks.VERSION
+            val supportedIds = engagement.evidence.filter { AssessmentChecks.supports(it.source) }.map { it.id }.toSet()
+            require(sourceIds.all { it in supportedIds }) { "Select supported evidence from this engagement." }
+            val existing = engagement.evidence.filter { it.source == "versioned-check-evaluation" }
+                .map { json.decodeFromString<CheckEvaluation>(it.text) }
+                .filter { it.registryVersion == AssessmentChecks.VERSION }
+                .map { it.sourceEvidenceId to it.sourceSha256 }.toSet()
+            val evaluatedAt = now()
+            val evaluations = sourceIds.map { AssessmentChecks.evaluate(engagement, it, evaluatedAt) }
+                .filterNot { (it.sourceEvidenceId to it.sourceSha256) in existing }
+            if (evaluations.isEmpty()) {
+                batch = EvidenceReviewBatch(0, sourceIds.size, 0)
+                return@edit engagement
             }
-            if (existing) return@edit engagement
-            val run = AssessmentRun(id(), evaluation.assetId, evaluation.evaluatedAt, checkId = "observation-checks",
-                checkVersion = AssessmentChecks.VERSION, status = AssessmentRunStatus.RECORDED, endedAt = evaluation.evaluatedAt)
-            val body = json.encodeToString(evaluation)
-            val evidence = AssessmentEvidence(id(), evaluation.assetId, run.id, "Versioned observation checks", body,
-                AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), evaluation.evaluatedAt,
-                source = "versioned-check-evaluation", appVersion = appVersion, catalogVersion = catalogVersion)
-            val priorChecks = engagement.findings.filter { evidenceId in it.evidenceIds }
-                .map { it.checkId to it.checkVersion }.toSet()
-            val findings = evaluation.results.filter {
-                it.outcome == CheckOutcome.CONDITION_OBSERVED && (it.checkId to it.checkVersion) !in priorChecks
-            }.map { result ->
-                val check = AssessmentChecks.definition(result.checkId)
-                AssessmentFinding(id(), evaluation.assetId, check.title,
-                    "${result.explanation}\nRecommended action: ${check.remediation}\nReferences: ${check.references.joinToString()}\nBased only on the saved observation; not a CVE, exploitation or access verdict.",
-                    check.severity, check.confidence, listOf(evidenceId, evidence.id), evaluation.evaluatedAt,
-                    checkId = result.checkId, checkVersion = result.checkVersion)
+
+            val newRuns = ArrayList<AssessmentRun>(evaluations.size)
+            val newEvidence = ArrayList<AssessmentEvidence>(evaluations.size)
+            val newFindings = mutableListOf<AssessmentFinding>()
+            for (evaluation in evaluations) {
+                val run = AssessmentRun(id(), evaluation.assetId, evaluation.evaluatedAt, checkId = "observation-checks",
+                    checkVersion = AssessmentChecks.VERSION, status = AssessmentRunStatus.RECORDED, endedAt = evaluation.evaluatedAt)
+                val body = json.encodeToString(evaluation)
+                val evidence = AssessmentEvidence(id(), evaluation.assetId, run.id, "Versioned observation checks", body,
+                    AssessmentRules.sha256(body.toByteArray(Charsets.UTF_8)), evaluation.evaluatedAt,
+                    source = "versioned-check-evaluation", appVersion = appVersion, catalogVersion = catalogVersion)
+                val priorChecks = engagement.findings.filter { evaluation.sourceEvidenceId in it.evidenceIds }
+                    .map { it.checkId to it.checkVersion }.toSet()
+                val findings = evaluation.results.filter {
+                    it.outcome == CheckOutcome.CONDITION_OBSERVED && (it.checkId to it.checkVersion) !in priorChecks
+                }.map { result ->
+                    val check = AssessmentChecks.definition(result.checkId)
+                    AssessmentFinding(id(), evaluation.assetId, check.title,
+                        "${result.explanation}\nRecommended action: ${check.remediation}\nReferences: ${check.references.joinToString()}\nBased only on the saved observation; not a CVE, exploitation or access verdict.",
+                        check.severity, check.confidence, listOf(evaluation.sourceEvidenceId, evidence.id), evaluation.evaluatedAt,
+                        checkId = result.checkId, checkVersion = result.checkVersion)
+                }
+                newRuns += run
+                newEvidence += evidence
+                newFindings += findings
             }
-            added = findings.size
-            engagement.copy(runs = engagement.runs + run, evidence = engagement.evidence + evidence, findings = engagement.findings + findings)
+            batch = EvidenceReviewBatch(evaluations.size, sourceIds.size - evaluations.size, newFindings.size)
+            engagement.copy(runs = engagement.runs + newRuns, evidence = engagement.evidence + newEvidence,
+                findings = engagement.findings + newFindings)
         }
-        return added
+        return batch
     }
 
     suspend fun validateDeviceEvidence(engagementId: String, evidenceId: String, catalogVersion: Int): Boolean {

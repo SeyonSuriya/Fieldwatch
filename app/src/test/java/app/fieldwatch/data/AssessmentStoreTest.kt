@@ -220,6 +220,45 @@ class AssessmentStoreTest {
         assertTrue(AssessmentReports.export(saved, true, 2000, "test").contains("wifi-open"))
     }
 
+    @Test fun batchReviewsMixedEvidenceAtomicallyAndSharesSingleReviewDeduplication() = runBlocking {
+        val file = File(temp.newFolder(), "vault.bin")
+        val store = store(file)
+        store.load()
+        val engagement = store.create("Lab", "Authorized fixtures")
+        val other = store.create("Other lab", "Separate fixtures")
+        val http = serviceReport().copy(attemptedRequestHex = ServiceInspection.hex(ServiceInspection.request("192.168.1.1", 80)))
+        store.saveServiceReport(engagement, http, 94)
+        store.saveWifiSecurity(engagement, wifiReport(), 94)
+        val address = "AA:BB:CC:00:00:01"
+        store.addAsset(engagement, "Sensor", address, AssessmentTransport.BLE)
+        val bluetooth = BluetoothToolState(BluetoothToolTarget(address, AssessmentTransport.BLE))
+        store.saveBluetoothSession(engagement, BluetoothToolReports.report(bluetooth, 700), 94)
+        store.saveServiceReport(other, http, 94)
+        val sources = store.archive.value.engagements.single { it.id == engagement }.evidence
+        val foreign = store.archive.value.engagements.single { it.id == other }.evidence.single()
+        assertEquals(1, store.evaluateEvidence(engagement, sources.first().id, 94))
+
+        val before = store.archive.value
+        rejects { store.evaluateEvidenceBatch(engagement, listOf(sources.last().id, foreign.id), 94) }
+        assertEquals(before, store.archive.value)
+
+        val ids = sources.map { it.id }
+        assertEquals(EvidenceReviewBatch(2, 1, 1), store.evaluateEvidenceBatch(engagement, ids + ids.last(), 94))
+        val reviewed = store.archive.value.engagements.single { it.id == engagement }
+        val reports = reviewed.evidence.filter { it.source == "versioned-check-evaluation" }
+            .map { Json.decodeFromString<CheckEvaluation>(it.text) }
+        assertEquals(sources.associate { it.id to it.sha256 }, reports.associate { it.sourceEvidenceId to it.sourceSha256 })
+        assertTrue(reports.any { it.bluetoothAccess is BluetoothAccessObservation.Ble })
+        assertTrue(reports.any { it.httpAccess?.status == 200 })
+        assertEquals(setOf("http-cleartext", "wifi-open"), reviewed.findings.map { it.checkId }.toSet())
+        assertTrue(reviewed.access.isEmpty())
+
+        val reopened = store(file)
+        reopened.load()
+        assertEquals(EvidenceReviewBatch(0, 3, 0), reopened.evaluateEvidenceBatch(engagement, ids, 94))
+        assertEquals(reviewed, reopened.archive.value.engagements.single { it.id == engagement })
+    }
+
     @Test fun cleartextEvaluationConfirmsOnlyTheTransportCondition() = runBlocking {
         val file = File(temp.newFolder(), "vault.bin")
         val store = store(file)
