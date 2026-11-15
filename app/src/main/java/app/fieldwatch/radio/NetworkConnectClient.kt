@@ -72,8 +72,9 @@ class NetworkConnectClient(context: Context) {
         ServiceInspection.TLS_AUDIT_VERSIONS.map { inspect(address, port, ServiceProbe.TLS, it) }
             .also(ServiceInspection::validateTlsAudit)
 
-    suspend fun inspect(address: String, port: Int, probe: ServiceProbe, requestedTlsProtocol: String? = null): ServiceInspectionReport = coroutineScope {
-        ServiceInspection.request(address, port)
+    suspend fun inspect(address: String, port: Int, probe: ServiceProbe, requestedTlsProtocol: String? = null,
+        httpPath: String = "/"): ServiceInspectionReport = coroutineScope {
+        ServiceInspection.request(address, port, httpPath)
         validateTargets(listOf(address))
         val socket = synchronized(sockets) {
             check(!closed) { "Network run stopped." }
@@ -87,7 +88,7 @@ class NetworkConnectClient(context: Context) {
         }
         try {
             val report = withContext(Dispatchers.IO) {
-                ServiceInspector.inspect(socket, address, port, probe, description, requestedTlsProtocol = requestedTlsProtocol)
+                ServiceInspector.inspect(socket, address, port, probe, description, requestedTlsProtocol = requestedTlsProtocol, httpPath = httpPath)
             }
             currentCoroutineContext().ensureActive()
             when {

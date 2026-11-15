@@ -18,6 +18,7 @@ data class CheckDefinition(val id: String, val title: String, val severity: Find
 data class HttpAccessObservation(
     val status: Int,
     val interpretation: String,
+    val httpPath: String = "/",
 )
 
 @Serializable
@@ -96,7 +97,7 @@ object AssessmentChecks {
                 val report = json.decodeFromString<ServiceInspectionReport>(evidence.text).also { it.validate() }
                 require(asset.transport == AssessmentTransport.NETWORK && asset.identifier == report.address) { "Service evidence target mismatch." }
                 val parsed = HttpEvidence.read(report)
-                httpAccess = parsed?.let(::accessObservation)
+                httpAccess = parsed?.let { accessObservation(it, report.httpPath) }
                 certificateDetails = report.certificateDetails
                 certificateInspectionEndedAt = report.endedAt.takeIf { report.certificateDetails != null }
                 service(report, parsed)
@@ -162,19 +163,19 @@ object AssessmentChecks {
 
     private val redirects = setOf(301, 302, 303, 307, 308)
 
-    private fun accessObservation(response: ParsedHttpEvidence): HttpAccessObservation {
+    private fun accessObservation(response: ParsedHttpEvidence, httpPath: String): HttpAccessObservation {
         val interpretation = when (response.status) {
             401 -> if (response.headers.any { (name, value) -> name == "www-authenticate" && value.isNotBlank() }) {
-                "HEAD / received HTTP 401 with a WWW-Authenticate header."
+                "HEAD $httpPath received HTTP 401 with a WWW-Authenticate header."
             } else {
-                "HEAD / received HTTP 401 without a nonempty WWW-Authenticate header."
+                "HEAD $httpPath received HTTP 401 without a nonempty WWW-Authenticate header."
             }
-            403 -> "The server refused HEAD /. The reason and policies for other paths are unknown."
-            in redirects -> "The server redirected HEAD /. The destination was not visited."
-            in 200..299 -> "HEAD / succeeded without credentials. Authorization for content and other paths remains unknown."
-            else -> "The server responded to HEAD /. Authorization remains unknown."
+            403 -> "The server refused HEAD $httpPath. The reason and policies for other paths are unknown."
+            in redirects -> "The server redirected HEAD $httpPath. The destination was not visited."
+            in 200..299 -> "HEAD $httpPath succeeded without credentials. Authorization for content and other paths remains unknown."
+            else -> "The server responded to HEAD $httpPath. Authorization remains unknown."
         }
-        return HttpAccessObservation(response.status, interpretation)
+        return HttpAccessObservation(response.status, interpretation, httpPath)
     }
 
     private fun redirectDowngrade(probe: ServiceProbe, response: ParsedHttpEvidence?): CheckOutcome {
@@ -210,7 +211,7 @@ object AssessmentChecks {
         val sshV1 = Regex("^SSH-1\\.(?!99-)[0-9]+-[^\\r\\n]+\\r?\\n$").matches(banner)
         val sshV2 = Regex("^SSH-(?:1\\.99|2\\.0)-[^\\r\\n]+\\r?\\n$").matches(banner)
         return listOf(
-            result("http-cleartext", httpOutcome(clear), if (parsed != null && clear) "A complete HTTP ${parsed.status} header response to HEAD / was captured over cleartext TCP. No sensitive data or login was tested."
+            result("http-cleartext", httpOutcome(clear), if (parsed != null && clear) "A complete HTTP ${parsed.status} header response to HEAD ${report.httpPath} was captured over cleartext TCP. No sensitive data or login was tested."
                 else "A complete applicable cleartext HTTP exchange was not established; this does not establish that the endpoint requires HTTPS."),
             result("http-basic-cleartext", httpOutcome(clear && basic), if (clear && basic) "HTTP 401 advertises a Basic realm on cleartext TCP. Credential submission/acceptance was not tested."
                 else "No qualifying cleartext Basic challenge was established. Unrecognized or combined challenge syntax may be unclassified."),

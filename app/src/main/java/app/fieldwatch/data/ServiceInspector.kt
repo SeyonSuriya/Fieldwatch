@@ -28,8 +28,10 @@ object ServiceInspector {
 
     fun inspect(socket: Socket, address: String, port: Int, probe: ServiceProbe, network: String,
         requestedTlsProtocol: String? = null,
+        httpPath: String = "/",
         nanoTime: () -> Long = System::nanoTime): ServiceInspectionReport {
-        ServiceInspection.request(address, port) // Validate even modes which do not send HTTP.
+        val request = ServiceInspection.request(address, port, httpPath)
+        require(httpPath == "/" || probe == ServiceProbe.HTTP_HEAD || probe == ServiceProbe.HTTPS_HEAD)
         require(requestedTlsProtocol == null || (probe == ServiceProbe.TLS && requestedTlsProtocol in ServiceInspection.TLS_AUDIT_VERSIONS))
         val startedAt = System.currentTimeMillis()
         val deadline = nanoTime() + ServiceInspection.DEADLINE_MS * 1_000_000
@@ -80,7 +82,6 @@ object ServiceInspector {
                 }
             }
             if (probe == ServiceProbe.HTTP_HEAD || probe == ServiceProbe.HTTPS_HEAD) {
-                val request = ServiceInspection.request(address, port)
                 attemptedRequest = ServiceInspection.hex(request)
                 active.getOutputStream().write(request)
                 active.getOutputStream().flush()
@@ -108,6 +109,6 @@ object ServiceInspector {
             attemptedRequestHex = attemptedRequest,
             receivedHex = ServiceInspection.hex(captured.toByteArray()), captureLimitReached = captured.size() == ServiceInspection.MAX_CAPTURE,
             tlsProtocol = protocol, tlsCipher = cipher, certificateSha256 = certificate,
-            requestedTlsProtocol = requestedTlsProtocol, certificateDetails = certificateDetails).also { it.validate() }
+            requestedTlsProtocol = requestedTlsProtocol, certificateDetails = certificateDetails, httpPath = httpPath).also { it.validate() }
     }
 }

@@ -54,6 +54,7 @@ data class ServiceInspectionReport(
     val certificateSha256: String? = null,
     val requestedTlsProtocol: String? = null,
     val certificateDetails: TlsCertificateDetails? = null,
+    val httpPath: String = "/",
 ) {
     fun validate() {
         require(NetworkScope.hosts(address) == listOf(address))
@@ -62,7 +63,9 @@ data class ServiceInspectionReport(
         require(outcome in setOf("observed", "eof", "timeout", "tls-validation-or-handshake-failed", "connection-or-io-error") ||
             (outcome == "tls-version-unavailable" && requestedTlsProtocol != null))
         val http = probe == ServiceProbe.HTTP_HEAD || probe == ServiceProbe.HTTPS_HEAD
-        require(attemptedRequestHex.isEmpty() || (http && attemptedRequestHex == ServiceInspection.hex(ServiceInspection.request(address, port))))
+        require(http || httpPath == "/")
+        ServiceInspection.validateHttpPath(httpPath)
+        require(attemptedRequestHex.isEmpty() || (http && attemptedRequestHex == ServiceInspection.hex(ServiceInspection.request(address, port, httpPath))))
         require(receivedHex.length <= ServiceInspection.MAX_CAPTURE * 2 && receivedHex.length % 2 == 0 && receivedHex.all { it in "0123456789abcdef" })
         require(!captureLimitReached || receivedHex.length == ServiceInspection.MAX_CAPTURE * 2)
         val tls = probe == ServiceProbe.TLS || probe == ServiceProbe.HTTPS_HEAD
@@ -99,9 +102,18 @@ object ServiceInspection {
         }
     }
 
-    fun request(address: String, port: Int): ByteArray {
+    fun validateHttpPath(path: String) {
+        require(path.length in 1..256 && path.startsWith('/') &&
+            path.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it in "/-._~" } &&
+            "//" !in path && path.split('/').none { it == "." || it == ".." }) {
+            "Enter a path starting with /, such as /admin/status. Use letters, digits, slashes, hyphens, dots, underscores or tildes."
+        }
+    }
+
+    fun request(address: String, port: Int, httpPath: String = "/"): ByteArray {
         require(NetworkScope.hosts(address) == listOf(address) && port in 1..65535)
-        return "HEAD / HTTP/1.0\r\nHost: $address:$port\r\nConnection: close\r\nUser-Agent: Fieldwatch-Assessment/1\r\n\r\n".toByteArray(Charsets.US_ASCII)
+        validateHttpPath(httpPath)
+        return "HEAD $httpPath HTTP/1.0\r\nHost: $address:$port\r\nConnection: close\r\nUser-Agent: Fieldwatch-Assessment/1\r\n\r\n".toByteArray(Charsets.US_ASCII)
     }
     fun hex(bytes: ByteArray): String = bytes.joinToString("") { "%02x".format(it.toInt() and 255) }
     fun bytes(hex: String): ByteArray = hex.chunked(2).map { it.toInt(16).toByte() }.toByteArray()

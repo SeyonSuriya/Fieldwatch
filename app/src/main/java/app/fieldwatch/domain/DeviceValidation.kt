@@ -50,7 +50,7 @@ object DeviceValidation {
         val inspection = Json.decodeFromString<ServiceInspectionReport>(evidence.text).also { it.validate() }
         require(asset.transport == AssessmentTransport.NETWORK && asset.identifier == inspection.address) { "Service evidence target mismatch." }
         require(now > 0)
-        val http = if (inspection.probe == ServiceProbe.HTTP_HEAD) HttpEvidence.read(inspection) else null
+        val http = if (inspection.probe == ServiceProbe.HTTP_HEAD && inspection.httpPath == "/") HttpEvidence.read(inspection) else null
         val headers = http?.headers.orEmpty()
         fun values(name: String) = headers.filter { it.first == name }.map { it.second }
         fun single(name: String) = values(name).singleOrNull()

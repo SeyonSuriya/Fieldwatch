@@ -32,6 +32,7 @@ data class ServiceDiscoveryReport(
     val advertisedIdentity: String?,
     val explanation: String,
     val candidates: List<AdvisoryCandidate>,
+    val httpPath: String? = null,
 )
 
 /** Offline, deterministic interpretation. No extra requests, credentials or exploit payloads. */
@@ -62,7 +63,7 @@ object ServiceDiscovery {
             evaluatedAt = now, address = report.address, port = report.port, protocol = ServiceInspection.identify(report.receivedHex),
             product = identity.first, advertisedVersion = identity.second, advertisedIdentity = identity.third,
             explanation = "Identity is a server advertisement, not verified firmware. Headers/banners may be hidden, proxied, forged or retain old versions after backports. ${if (matches.isEmpty()) "No match in the two-entry catalog; vulnerability status is unknown." else "Affected-version candidates require independent build and configuration validation."}",
-            candidates = matches)
+            candidates = matches, httpPath = report.httpPath.takeIf { report.probe == ServiceProbe.HTTP_HEAD || report.probe == ServiceProbe.HTTPS_HEAD })
     }
 
     private fun identify(report: ServiceInspectionReport): Triple<String?, String?, String?> {

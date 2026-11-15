@@ -8,6 +8,7 @@ data class CoverageInspection(
     val outcome: String,
     val endedAt: Long,
     val advertisedLabel: String?,
+    val httpPath: String? = null,
 )
 
 data class CertificateCapture(
@@ -35,6 +36,7 @@ data class ServiceCapture(
     val endedAt: Long,
     val advertisedLabel: String?,
     val httpAccess: HttpAccessSignal?,
+    val httpPath: String? = null,
 )
 
 enum class HttpAccessSignal(val label: String) {
@@ -134,12 +136,13 @@ object AssessmentCoverage {
                         val service = services[report.port] ?: ServiceCoverage(report.port)
                         val label = ServiceInspection.advertisedLabel(report)
                         val http = HttpEvidence.read(report)
+                        val path = report.httpPath.takeIf { report.probe == ServiceProbe.HTTP_HEAD || report.probe == ServiceProbe.HTTPS_HEAD }
                         if (http != null || label != null) {
                             serviceCaptures.getOrPut(report.port) { mutableListOf() } += ServiceCapture(
-                                row.id, report.network, report.probe, report.endedAt, label, http?.accessSignal())
+                                row.id, report.network, report.probe, report.endedAt, label, http?.accessSignal(), path)
                         }
                         val latest = if (service.latestInspection == null || report.endedAt >= service.latestInspection.endedAt) {
-                            CoverageInspection(row.id, report.probe, report.outcome, report.endedAt, label)
+                            CoverageInspection(row.id, report.probe, report.outcome, report.endedAt, label, path)
                         } else service.latestInspection
                         val captured = report.outcome in setOf("observed", "eof") &&
                             (report.receivedHex.isNotEmpty() || report.tlsProtocol != null)
@@ -169,7 +172,7 @@ object AssessmentCoverage {
                         }.filterNotNull()
                         CertificateHistory(ordered.last(), ordered.size, changes)
                     }.sortedByDescending { it.latest.endedAt }
-                val changes = serviceCaptures[service.port].orEmpty().groupBy { it.network to it.probe }
+                val changes = serviceCaptures[service.port].orEmpty().groupBy { Triple(it.network, it.probe, it.httpPath) }
                     .values.flatMap { captures ->
                         captures.sortedBy { it.endedAt }.zipWithNext(::ServiceChange).filter {
                             it.advertisedLabelChanged || it.httpAccessChanged

@@ -20,6 +20,12 @@ class ServiceInspectionTest {
         assertEquals("FTP greeting advertised", ServiceInspection.identify(ServiceInspection.hex("220 FTP ready\r\n".toByteArray())))
         assertTrue(ServiceInspection.identify(ServiceInspection.hex("custom protocol".toByteArray())).startsWith("Unclassified"))
     }
+    @Test fun httpPathRejectsOtherAuthoritiesTraversalAndRequestLineInjection() {
+        listOf("https://another/admin", "//another/admin", "/admin/../status", "/./admin", "/%2e%2e/admin",
+            "/admin?token=x", "/admin#status", "/admin\\status", "/admin\r\nX: yes", "/${"a".repeat(256)}").forEach {
+            rejected { ServiceInspection.request("192.168.1.2", 80, it) }
+        }
+    }
     @Test fun advertisedLabelsRequireUnambiguousHeadersOrPrintableBanners() {
         val base = report()
         val http = base.copy(attemptedRequestHex = ServiceInspection.hex(ServiceInspection.request(base.address, base.port)))

@@ -87,12 +87,13 @@ internal fun AssessmentCoverageDialog(
                     },
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (changedService != null) {
-                        item { Text("Changes compare saved responses from the same Wi-Fi network and inspection mode.") }
+                        item { Text("Changes compare saved responses from the same Wi-Fi network, inspection mode, and HTTP path.") }
                         items(changedService.serviceChanges, key = { it.current.evidenceId }) { change ->
                             Column {
                                 HorizontalDivider()
                                 Text("${change.current.probe.name.replace('_', ' ')} · ${change.current.network}",
                                     style = MaterialTheme.typography.titleSmall)
+                                change.current.httpPath?.let { Text("HTTP path $it") }
                                 Text("Previous · ${coverageTime(change.previous.endedAt)}")
                                 if (change.advertisedLabelChanged) Text("Advertised software or banner: ${change.previous.advertisedLabel}")
                                 if (change.httpAccessChanged) Text(change.previous.httpAccess!!.label)
@@ -188,6 +189,7 @@ internal fun AssessmentCoverageDialog(
                                 } else {
                                     Text("${service.capturedResponses} saved responses")
                                     Text("Latest inspection: ${inspection.probe.name.replace('_', ' ')} · ${inspection.outcome.replace('-', ' ')} · ${coverageTime(inspection.endedAt)}")
+                                    inspection.httpPath?.let { Text("HTTP path $it") }
                                     TextButton(onClick = { onOpenEvidence(inspection.evidenceId) }) { Text("Open inspection") }
                                 }
                                 if (service.certificateHistories.isNotEmpty()) {

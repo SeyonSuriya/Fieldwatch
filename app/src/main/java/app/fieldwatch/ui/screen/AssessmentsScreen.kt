@@ -344,6 +344,7 @@ private fun <T : Any> FindingFilterMenu(
 @Composable
 private fun DiscoveryReviewContent(report: ServiceDiscoveryReport) {
     Text("${report.address}:${report.port} | ${report.protocol}")
+    report.httpPath?.let { Text("HTTP path $it") }
     Text("Advertised software: ${report.product ?: "Unknown"} ${report.advertisedVersion.orEmpty()}")
     Text(report.explanation)
     report.candidates.forEach { candidate ->
@@ -361,7 +362,7 @@ private fun CheckReviewContent(preview: CheckEvaluation, sourceInspectionEndedAt
         TlsCertificateDetailsContent(it, preview.certificateInspectionEndedAt ?: sourceInspectionEndedAt)
     }
     preview.httpAccess?.let { observation ->
-        Text("HTTP ${observation.status} on HEAD /", style = MaterialTheme.typography.titleSmall)
+        Text("HTTP ${observation.status} on HEAD ${observation.httpPath}", style = MaterialTheme.typography.titleSmall)
         Text(observation.interpretation)
     }
     when (val observation = preview.bluetoothAccess) {

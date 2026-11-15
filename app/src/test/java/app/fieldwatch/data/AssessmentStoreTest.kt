@@ -359,7 +359,9 @@ class AssessmentStoreTest {
         val after = reply(30, "HTTP/1.1 401 Unauthorized\r\nServer: Lab/2\r\nWWW-Authenticate: Basic realm=\"Lab\"\r\n\r\n")
         val missingLabel = reply(40, "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"Lab\"\r\n\r\n")
         val failed = before.copy(startedAt = 19, endedAt = 20, outcome = "timeout")
-        listOf(after, before, after.copy(network = "Other Wi-Fi"), failed, missingLabel).forEach {
+        val unrelatedPath = before.copy(startedAt = 34, endedAt = 35, httpPath = "/status",
+            attemptedRequestHex = ServiceInspection.hex(ServiceInspection.request(base.address, base.port, "/status")))
+        listOf(after, before, after.copy(network = "Other Wi-Fi"), failed, missingLabel, unrelatedPath).forEach {
             store.saveServiceReport(engagement, it, 94)
         }
         val saved = store.archive.value.engagements.single()

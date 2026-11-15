@@ -81,13 +81,13 @@ class NetworkAssessmentViewModel(application: Application) : AndroidViewModel(ap
     }
 
     fun stop() { job?.cancel(); client?.close() }
-    fun inspect(engagementId: String, address: String, port: String, probe: ServiceProbe) =
-        startInspection(engagementId, address, port, probe, audit = false)
+    fun inspect(engagementId: String, address: String, port: String, probe: ServiceProbe, httpPath: String = "/") =
+        startInspection(engagementId, address, port, probe, audit = false, httpPath = httpPath)
 
     fun auditTls(engagementId: String, address: String, port: String) =
         startInspection(engagementId, address, port, ServiceProbe.TLS, audit = true)
 
-    private fun startInspection(engagementId: String, address: String, port: String, probe: ServiceProbe, audit: Boolean) {
+    private fun startInspection(engagementId: String, address: String, port: String, probe: ServiceProbe, audit: Boolean, httpPath: String = "/") {
         if (mutableBusy.value) return
         job = viewModelScope.launch {
             mutableBusy.value = true
@@ -97,7 +97,7 @@ class NetworkAssessmentViewModel(application: Application) : AndroidViewModel(ap
                 val engagement = archive.value.engagements.singleOrNull { it.id == engagementId && it.closedAt == null }
                     ?: error("Select an open engagement.")
                 val checkedPort = port.toIntOrNull() ?: error("Enter one numeric port.")
-                ServiceInspection.request(address, checkedPort)
+                ServiceInspection.request(address, checkedPort, httpPath)
                 selected = NetworkConnectClient(app)
                 client = selected
                 selected.validateTargets(listOf(address))
@@ -111,7 +111,7 @@ class NetworkAssessmentViewModel(application: Application) : AndroidViewModel(ap
                     mutableNotice.value = "TLS audit finished. Verified handshakes show accepted versions. Other results are inconclusive."
                 } else {
                     mutableNotice.value = "Inspecting $address:$checkedPort with $probe (five-second deadline)."
-                    mutableService.value = selected.inspect(address, checkedPort, probe)
+                    mutableService.value = selected.inspect(address, checkedPort, probe, httpPath = httpPath)
                     mutableNotice.value = "Inspection finished. Banners and headers are server claims; no vulnerability or access verdict was created."
                 }
             } catch (e: CancellationException) { mutableNotice.value = "Inspection stopped; no completed report was recorded." }

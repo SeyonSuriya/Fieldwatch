@@ -49,6 +49,15 @@ class ServiceInspectorTest {
         assertEquals("192.168.1.2", (socket.endpoint as InetSocketAddress).address.hostAddress)
         assertEquals(1, socket.output.toString().split("HEAD /").size - 1)
     }
+    @Test fun customHeadPathIsSentExactlyAndBoundToEvidence() {
+        val socket = StubSocket(ByteArrayInputStream("HTTP/1.1 403 Forbidden\r\n\r\n".toByteArray()))
+        val report = ServiceInspector.inspect(socket, "192.168.1.2", 8080, ServiceProbe.HTTP_HEAD, "Wi-Fi test",
+            httpPath = "/admin/status")
+        assertTrue(socket.output.toString().startsWith("HEAD /admin/status HTTP/1.0\r\n"))
+        assertEquals("/admin/status", report.httpPath)
+        assertEquals(403, HttpEvidence.read(report)?.status)
+        assertThrows(IllegalArgumentException::class.java) { report.copy(httpPath = "/other").validate() }
+    }
     @Test fun bannerSendsNothingAndStopsAtFirstLine() {
         val socket = StubSocket(ByteArrayInputStream("SSH-2.0-Lab\r\nextra".toByteArray()))
         val report = inspect(socket, ServiceProbe.BANNER)

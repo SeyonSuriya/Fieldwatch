@@ -6,7 +6,7 @@ data class ParsedHttpEvidence(val status: Int, val headers: List<Pair<String, St
 object HttpEvidence {
     fun read(report: ServiceInspectionReport): ParsedHttpEvidence? {
         if (report.probe !in setOf(ServiceProbe.HTTP_HEAD, ServiceProbe.HTTPS_HEAD) || report.outcome !in setOf("observed", "eof")) return null
-        if (report.attemptedRequestHex != ServiceInspection.hex(ServiceInspection.request(report.address, report.port))) return null
+        if (report.attemptedRequestHex != ServiceInspection.hex(ServiceInspection.request(report.address, report.port, report.httpPath))) return null
         if (report.probe == ServiceProbe.HTTPS_HEAD && report.tlsProtocol == null) return null
         val bytes = ServiceInspection.bytes(report.receivedHex)
         if (bytes.any { (it.toInt() and 255) !in 32..126 && it != 13.toByte() && it != 10.toByte() && it != 9.toByte() }) return null

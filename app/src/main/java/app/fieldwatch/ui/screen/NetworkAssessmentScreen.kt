@@ -45,6 +45,7 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
     var confirm by remember { mutableStateOf(false) }
     var serviceAddress by remember { mutableStateOf("") }
     var servicePort by remember { mutableStateOf("80") }
+    var httpPath by remember { mutableStateOf("/") }
     var probe by remember { mutableStateOf(ServiceProbe.BANNER) }
     var pendingInspection by remember { mutableStateOf<PendingInspection?>(null) }
     var pendingWifi by remember { mutableStateOf<Pair<String, WifiSecurityReport>?>(null) }
@@ -81,19 +82,29 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
                 }
             }
             if (Build.VERSION.SDK_INT >= 33) item { SectionCard("Inspect one service") {
-                Text("Uses the selected open engagement above. Choose the protocol explicitly; port numbers do not identify services. Banner mode sends no application payload. HTTP sends HEAD /; redirects, bodies, credentials and cookies are not requested or followed.")
+                Text("Choose the protocol for the selected engagement. HTTP sends HEAD to the selected path and captures response headers.")
                 Text("TLS requires a trusted certificate valid for the numeric IP address. Self-signed or hostname-only certificates may fail; no insecure retry is made. Capture limit: 4 KiB; deadline: five seconds.")
                 OutlinedTextField(serviceAddress, { serviceAddress = it }, label = { Text("Numeric IPv4 target") }, enabled = !busy, singleLine = true)
                 OutlinedTextField(servicePort, { servicePort = it }, label = { Text("TCP port") }, enabled = !busy, singleLine = true)
                 ServiceProbe.entries.forEach { mode -> OutlinedButton(onClick = { probe = mode }, enabled = !busy) {
                     Text((if (probe == mode) "Selected: " else "") + when (mode) {
                         ServiceProbe.BANNER -> "Read banner"
-                        ServiceProbe.HTTP_HEAD -> "HTTP HEAD /"
+                        ServiceProbe.HTTP_HEAD -> "HTTP HEAD"
                         ServiceProbe.TLS -> "TLS handshake"
-                        ServiceProbe.HTTPS_HEAD -> "HTTPS HEAD /"
+                        ServiceProbe.HTTPS_HEAD -> "HTTPS HEAD"
                     })
                 } }
-                Button(onClick = { engagement?.let { pendingInspection = PendingInspection(it, serviceAddress.trim(), servicePort.trim(), probe) } }, enabled = !busy && engagement != null) { Text("Review inspection") }
+                val isHttp = probe == ServiceProbe.HTTP_HEAD || probe == ServiceProbe.HTTPS_HEAD
+                if (isHttp) {
+                    OutlinedTextField(httpPath, { if (it.length <= 256) httpPath = it }, label = { Text("HTTP path") },
+                        placeholder = { Text("/admin/status") }, enabled = !busy, singleLine = true)
+                }
+                Button(onClick = {
+                    engagement?.let {
+                        pendingInspection = PendingInspection(it, serviceAddress.trim(), servicePort.trim(), probe,
+                            httpPath = if (isHttp) httpPath else "/")
+                    }
+                }, enabled = !busy && engagement != null) { Text("Review inspection") }
                 OutlinedButton(onClick = {
                     engagement?.let { pendingInspection = PendingInspection(it, serviceAddress.trim(), servicePort.trim(), ServiceProbe.TLS, audit = true) }
                 }, enabled = !busy && engagement != null) { Text("Review TLS version audit") }
@@ -118,6 +129,7 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
                     val label = remember(result) { ServiceInspection.advertisedLabel(result) }
                     Text(label ?: ServiceInspection.identify(result.receivedHex), style = MaterialTheme.typography.titleMedium)
                     Text("${result.address}:${result.port} · ${result.probe} · ${result.outcome} · ${Date(result.startedAt)}")
+                    if (result.probe == ServiceProbe.HTTP_HEAD || result.probe == ServiceProbe.HTTPS_HEAD) Text("Path ${result.httpPath}")
                     Text("Evidence destination: $serviceEngagement (fixed when inspection started)")
                     if (result.attemptedRequestHex.isNotEmpty()) Text("Request attempted:\n${ServiceInspection.display(result.attemptedRequestHex)}")
                     if (result.tlsProtocol != null) Text("Verified TLS session: ${result.tlsProtocol} · ${result.tlsCipher}\nLeaf certificate SHA-256: ${result.certificateSha256}")
@@ -154,14 +166,19 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } })
     pendingInspection?.let { pending ->
         val method = if (pending.audit) "Up to four connections to check TLS 1.0 through 1.3. Each version enabled on this phone gets one handshake with certificate verification."
-            else "Mode: ${pending.probe}. HTTP modes send HEAD /. TLS modes verify the certificate."
+            else when (pending.probe) {
+                ServiceProbe.HTTP_HEAD, ServiceProbe.HTTPS_HEAD -> "${pending.probe} ${pending.httpPath}"
+                ServiceProbe.TLS -> "TLS handshake with certificate verification."
+                ServiceProbe.BANNER -> "Read the service banner."
+            }
+        val pathError = runCatching { ServiceInspection.validateHttpPath(pending.httpPath) }.exceptionOrNull()?.message
         AlertDialog(onDismissRequest = { pendingInspection = null },
             title = { Text(if (pending.audit) "Confirm TLS version audit" else "Confirm service inspection") },
-            text = { Text("Engagement: ${archive.engagements.firstOrNull { it.id == pending.engagement }?.name}\nTarget: ${pending.address}:${pending.port}\n\n$method\n\nI am authorized to inspect this target. Connections may be logged by the service.") },
-            confirmButton = { TextButton(onClick = {
+            text = { Text("Engagement: ${archive.engagements.firstOrNull { it.id == pending.engagement }?.name}\nTarget: ${pending.address}:${pending.port}\n\n$method\n\n${pathError ?: "I am authorized to inspect this target. Connections may be logged by the service."}") },
+            confirmButton = { TextButton(enabled = pathError == null, onClick = {
                 pendingInspection = null
                 if (pending.audit) vm.auditTls(pending.engagement, pending.address, pending.port)
-                else vm.inspect(pending.engagement, pending.address, pending.port, pending.probe)
+                else vm.inspect(pending.engagement, pending.address, pending.port, pending.probe, pending.httpPath)
             }) { Text(if (pending.audit) "Start audit" else "Inspect") } },
             dismissButton = { TextButton(onClick = { pendingInspection = null }) { Text("Cancel") } })
     }
@@ -173,7 +190,10 @@ fun NetworkAssessmentScreen(onBack: () -> Unit, vm: NetworkAssessmentViewModel =
     }
 }
 
-private data class PendingInspection(val engagement: String, val address: String, val port: String, val probe: ServiceProbe, val audit: Boolean = false)
+private data class PendingInspection(
+    val engagement: String, val address: String, val port: String, val probe: ServiceProbe,
+    val audit: Boolean = false, val httpPath: String = "/",
+)
 
 @Composable
 internal fun TlsCertificateDetailsContent(details: TlsCertificateDetails, inspectionEndedAt: Long?) {

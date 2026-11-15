@@ -322,6 +322,7 @@ object AssessmentReports {
                 }
                 service.latestInspection?.let { inspection ->
                     inspection.advertisedLabel?.let { appendField("Advertised service", it) }
+                    inspection.httpPath?.let { appendField("HTTP path", it) }
                     appendField("Latest service inspection",
                         "${inspection.probe.name.replace('_', ' ')} · ${inspection.outcome.replace('-', ' ')} · ${Instant.ofEpochMilli(inspection.endedAt)} · ${references.getValue(inspection.evidenceId)}")
                 } ?: appendLine("No service inspection saved.")
@@ -331,6 +332,7 @@ object AssessmentReports {
                     appendLine("Service changes (${service.serviceChanges.size})")
                     for (change in service.serviceChanges) {
                         appendField("Comparison context", "${change.current.network} · ${change.current.probe.name.replace('_', ' ')}")
+                        change.current.httpPath?.let { appendField("Compared HTTP path", it) }
                         appendServiceCapture("Previous inspection", change.previous, change, references)
                         appendServiceCapture("Changed inspection", change.current, change, references)
                     }
