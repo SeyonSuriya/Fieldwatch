@@ -345,6 +345,34 @@ class AssessmentStoreTest {
         assertCapture("Changed certificate", change.current)
     }
 
+    @Test fun serviceChangesUseComparableCapturesAndPreserveBothEvidenceLinks() = runBlocking {
+        val store = store(File(temp.newFolder(), "vault.bin"))
+        store.load()
+        val engagement = store.create("Lab", "Authorized fixtures")
+        val base = serviceReport()
+        fun reply(at: Long, response: String) = base.copy(
+            startedAt = at - 1, endedAt = at,
+            attemptedRequestHex = ServiceInspection.hex(ServiceInspection.request(base.address, base.port)),
+            receivedHex = ServiceInspection.hex(response.toByteArray()),
+        )
+        val before = reply(10, "HTTP/1.1 200 OK\r\nServer: Lab/1\r\n\r\n")
+        val after = reply(30, "HTTP/1.1 401 Unauthorized\r\nServer: Lab/2\r\nWWW-Authenticate: Basic realm=\"Lab\"\r\n\r\n")
+        val missingLabel = reply(40, "HTTP/1.1 401 Unauthorized\r\nWWW-Authenticate: Basic realm=\"Lab\"\r\n\r\n")
+        val failed = before.copy(startedAt = 19, endedAt = 20, outcome = "timeout")
+        listOf(after, before, after.copy(network = "Other Wi-Fi"), failed, missingLabel).forEach {
+            store.saveServiceReport(engagement, it, 94)
+        }
+        val saved = store.archive.value.engagements.single()
+        val change = AssessmentCoverage.summarize(saved).single().services.single().serviceChanges.single()
+        assertEquals(saved.evidence[1].id, change.previous.evidenceId)
+        assertEquals(saved.evidence[0].id, change.current.evidenceId)
+        assertEquals("Lab/1", change.previous.advertisedLabel)
+        assertEquals("Lab/2", change.current.advertisedLabel)
+        assertEquals(HttpAccessSignal.SUCCESS, change.previous.httpAccess)
+        assertEquals(HttpAccessSignal.CHALLENGE, change.current.httpAccess)
+        assertTrue(change.advertisedLabelChanged && change.httpAccessChanged)
+    }
+
     @Test fun coverageDistinguishesTcpResultsCapturesAndReviewsOfEachSource() = runBlocking {
         val store = store(File(temp.newFolder(), "vault.bin"))
         store.load()

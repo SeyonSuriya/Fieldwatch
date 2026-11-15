@@ -51,20 +51,28 @@ internal fun AssessmentCoverageDialog(
     val target = coverage?.firstOrNull { it.asset.id == targetId }
     var certificatePort by remember(targetId) { mutableStateOf<Int?>(null) }
     val certificateService = target?.services?.firstOrNull { it.port == certificatePort }
+    var serviceChangePort by remember(targetId) { mutableStateOf<Int?>(null) }
+    val changedService = target?.services?.firstOrNull { it.port == serviceChangePort }
     val overviewScroll = rememberLazyListState()
     val detailScroll = key(targetId) { rememberLazyListState() }
     val certificateScroll = key(targetId, certificatePort) { rememberLazyListState() }
+    val changesScroll = key(targetId, serviceChangePort) { rememberLazyListState() }
     val validityCheckedAt = remember(targetId, certificatePort) { System.currentTimeMillis() }
     val back = {
         when {
             certificatePort != null -> certificatePort = null
+            serviceChangePort != null -> serviceChangePort = null
             targetId != null -> targetId = null
             else -> onDismiss()
         }
     }
     AlertDialog(
         onDismissRequest = back,
-        title = { Text(certificateService?.let { "Certificate history · TCP ${it.port}" } ?: target?.asset?.label ?: "Target coverage") },
+        title = {
+            Text(certificateService?.let { "Certificate history · TCP ${it.port}" }
+                ?: changedService?.let { "Service changes · TCP ${it.port}" }
+                ?: target?.asset?.label ?: "Target coverage")
+        },
         text = {
             val targets = coverage
             when {
@@ -73,11 +81,29 @@ internal fun AssessmentCoverageDialog(
                 else -> LazyColumn(Modifier.fillMaxWidth().heightIn(max = 460.dp),
                     state = when {
                         certificateService != null -> certificateScroll
+                        changedService != null -> changesScroll
                         target == null -> overviewScroll
                         else -> detailScroll
                     },
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    if (certificateService != null) {
+                    if (changedService != null) {
+                        item { Text("Changes compare saved responses from the same Wi-Fi network and inspection mode.") }
+                        items(changedService.serviceChanges, key = { it.current.evidenceId }) { change ->
+                            Column {
+                                HorizontalDivider()
+                                Text("${change.current.probe.name.replace('_', ' ')} · ${change.current.network}",
+                                    style = MaterialTheme.typography.titleSmall)
+                                Text("Previous · ${coverageTime(change.previous.endedAt)}")
+                                if (change.advertisedLabelChanged) Text("Advertised software or banner: ${change.previous.advertisedLabel}")
+                                if (change.httpAccessChanged) Text(change.previous.httpAccess!!.label)
+                                TextButton(onClick = { onOpenEvidence(change.previous.evidenceId) }) { Text("Open previous inspection") }
+                                Text("New · ${coverageTime(change.current.endedAt)}")
+                                if (change.advertisedLabelChanged) Text("Advertised software or banner: ${change.current.advertisedLabel}")
+                                if (change.httpAccessChanged) Text(change.current.httpAccess!!.label)
+                                TextButton(onClick = { onOpenEvidence(change.current.evidenceId) }) { Text("Open changed inspection") }
+                            }
+                        }
+                    } else if (certificateService != null) {
                         item { Text("Comparisons use the same saved Wi-Fi network, inspection mode and negotiated TLS version.") }
                         for (history in certificateService.certificateHistories) {
                             val latest = history.latest
@@ -184,6 +210,11 @@ internal fun AssessmentCoverageDialog(
                                     val changes = service.certificateHistories.sumOf { it.changes.size }
                                     OutlinedButton(onClick = { certificatePort = service.port }) { Text("Certificate history ($changes changes)") }
                                 }
+                                if (service.serviceChanges.isNotEmpty()) {
+                                    OutlinedButton(onClick = { serviceChangePort = service.port }) {
+                                        Text("Service changes (${service.serviceChanges.size})")
+                                    }
+                                }
                             }
                         }
                         item {
@@ -207,7 +238,7 @@ internal fun AssessmentCoverageDialog(
         },
         confirmButton = { TextButton(onClick = back) {
             Text(when {
-                certificateService != null -> "Back to endpoints"
+                certificateService != null || changedService != null -> "Back to endpoints"
                 target == null -> "Done"
                 else -> "Back to targets"
             })

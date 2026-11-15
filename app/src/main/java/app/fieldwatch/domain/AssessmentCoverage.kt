@@ -28,6 +28,33 @@ data class CertificateHistory(
     val changes: List<CertificateChange>,
 )
 
+data class ServiceCapture(
+    val evidenceId: String,
+    val network: String,
+    val probe: ServiceProbe,
+    val endedAt: Long,
+    val advertisedLabel: String?,
+    val httpAccess: HttpAccessSignal?,
+)
+
+enum class HttpAccessSignal(val label: String) {
+    SUCCESS("Successful response without credentials"),
+    CHALLENGE("HTTP 401 with an authentication header"),
+    NO_CHALLENGE("HTTP 401 without an authentication header"),
+    FORBIDDEN("HTTP 403 refusal"),
+    REDIRECT("HTTP redirect"),
+}
+
+data class ServiceChange(val previous: ServiceCapture, val current: ServiceCapture) {
+    val advertisedLabelChanged: Boolean
+        get() = previous.advertisedLabel != null && current.advertisedLabel != null &&
+            previous.advertisedLabel != current.advertisedLabel
+
+    val httpAccessChanged: Boolean
+        get() = previous.httpAccess != null && current.httpAccess != null &&
+            previous.httpAccess != current.httpAccess
+}
+
 data class ServiceCoverage(
     val port: Int,
     val latestTcp: TcpObservation? = null,
@@ -35,6 +62,7 @@ data class ServiceCoverage(
     val latestInspection: CoverageInspection? = null,
     val capturedResponses: Int = 0,
     val certificateHistories: List<CertificateHistory> = emptyList(),
+    val serviceChanges: List<ServiceChange> = emptyList(),
 )
 
 data class PendingEvidenceReview(
@@ -71,6 +99,7 @@ object AssessmentCoverage {
             }.toSet()
             val services = mutableMapOf<Int, ServiceCoverage>()
             val certificates = mutableMapOf<Int, MutableList<CertificateCapture>>()
+            val serviceCaptures = mutableMapOf<Int, MutableList<ServiceCapture>>()
             var unreadable = 0
             for (row in evidence) {
                 when (row.source) {
@@ -103,9 +132,14 @@ object AssessmentCoverage {
                             continue
                         }
                         val service = services[report.port] ?: ServiceCoverage(report.port)
+                        val label = ServiceInspection.advertisedLabel(report)
+                        val http = HttpEvidence.read(report)
+                        if (http != null || label != null) {
+                            serviceCaptures.getOrPut(report.port) { mutableListOf() } += ServiceCapture(
+                                row.id, report.network, report.probe, report.endedAt, label, http?.accessSignal())
+                        }
                         val latest = if (service.latestInspection == null || report.endedAt >= service.latestInspection.endedAt) {
-                            CoverageInspection(row.id, report.probe, report.outcome, report.endedAt,
-                                ServiceInspection.advertisedLabel(report))
+                            CoverageInspection(row.id, report.probe, report.outcome, report.endedAt, label)
                         } else service.latestInspection
                         val captured = report.outcome in setOf("observed", "eof") &&
                             (report.receivedHex.isNotEmpty() || report.tlsProtocol != null)
@@ -135,10 +169,26 @@ object AssessmentCoverage {
                         }.filterNotNull()
                         CertificateHistory(ordered.last(), ordered.size, changes)
                     }.sortedByDescending { it.latest.endedAt }
-                service.copy(certificateHistories = histories)
+                val changes = serviceCaptures[service.port].orEmpty().groupBy { it.network to it.probe }
+                    .values.flatMap { captures ->
+                        captures.sortedBy { it.endedAt }.zipWithNext(::ServiceChange).filter {
+                            it.advertisedLabelChanged || it.httpAccessChanged
+                        }
+                    }.sortedByDescending { it.current.endedAt }
+                service.copy(certificateHistories = histories, serviceChanges = changes)
             }
             TargetCoverage(asset, evidence.size, coveredServices, pending, unreadable)
         }
+    }
+
+    private fun ParsedHttpEvidence.accessSignal(): HttpAccessSignal? = when (status) {
+        in 200..299 -> HttpAccessSignal.SUCCESS
+        401 -> if (headers.any { it.first == "www-authenticate" && it.second.isNotBlank() }) {
+            HttpAccessSignal.CHALLENGE
+        } else HttpAccessSignal.NO_CHALLENGE
+        403 -> HttpAccessSignal.FORBIDDEN
+        301, 302, 303, 307, 308 -> HttpAccessSignal.REDIRECT
+        else -> null
     }
 
     private inline fun <reified T> decode(evidence: AssessmentEvidence): T? =
