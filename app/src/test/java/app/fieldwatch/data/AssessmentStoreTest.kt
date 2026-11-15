@@ -293,7 +293,8 @@ class AssessmentStoreTest {
         val engagement = store.create("Lab", "Authorized fixtures")
         val base = serviceReport().copy(probe = ServiceProbe.TLS, outcome = "observed", receivedHex = "",
             tlsProtocol = "TLSv1.2", tlsCipher = "TEST_CIPHER", certificateSha256 = "a".repeat(64))
-        val latest = base.copy(startedAt = 29, endedAt = 30, certificateSha256 = "b".repeat(64))
+        val validity = TlsCertificateDetails("CN=Lab issuer", 1, 100)
+        val latest = base.copy(startedAt = 29, endedAt = 30, certificateSha256 = "b".repeat(64), certificateDetails = validity)
         val repeated = base.copy(startedAt = 24, endedAt = 25)
         // Deliberately save out of capture order.
         listOf(latest, base, repeated,
@@ -302,7 +303,7 @@ class AssessmentStoreTest {
             latest.copy(probe = ServiceProbe.HTTPS_HEAD, certificateSha256 = "c".repeat(64)),
             latest.copy(port = 443, certificateSha256 = "c".repeat(64)),
             latest.copy(startedAt = 39, endedAt = 40, outcome = "tls-validation-or-handshake-failed",
-                tlsProtocol = null, tlsCipher = null, certificateSha256 = null)).forEach {
+                tlsProtocol = null, tlsCipher = null, certificateSha256 = null, certificateDetails = null)).forEach {
             store.saveServiceReport(engagement, it, 94)
         }
         val saved = store.archive.value.engagements.single()
@@ -316,6 +317,9 @@ class AssessmentStoreTest {
         assertEquals("a".repeat(64), change.previous.sha256)
         assertEquals("b".repeat(64), change.current.sha256)
         assertEquals(30L, group.latest.endedAt)
+        assertEquals(validity, group.latest.details)
+        assertEquals(TlsCertificateValidity.EXPIRED, group.latest.details?.validityAt(101))
+        assertNull(change.previous.details)
         assertTrue(histories.filter { it != group }.all { it.changes.isEmpty() })
         assertTrue(ports.getValue(443).certificateHistories.single().changes.isEmpty())
 

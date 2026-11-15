@@ -26,6 +26,9 @@ import androidx.compose.ui.unit.dp
 import app.fieldwatch.domain.AssessmentCoverage
 import app.fieldwatch.domain.AssessmentEngagement
 import app.fieldwatch.domain.TargetCoverage
+import app.fieldwatch.domain.TlsCertificateDetails
+import app.fieldwatch.domain.TlsCertificateValidity
+import java.time.Instant
 import java.text.DateFormat
 import java.util.Date
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +54,7 @@ internal fun AssessmentCoverageDialog(
     val overviewScroll = rememberLazyListState()
     val detailScroll = key(targetId) { rememberLazyListState() }
     val certificateScroll = key(targetId, certificatePort) { rememberLazyListState() }
+    val validityCheckedAt = remember(targetId, certificatePort) { System.currentTimeMillis() }
     val back = {
         when {
             certificatePort != null -> certificatePort = null
@@ -84,6 +88,19 @@ internal fun AssessmentCoverageDialog(
                                     Text(latest.network)
                                     Text("${history.captureCount} captures · ${history.changes.size} fingerprint changes")
                                     Text("Latest capture · ${coverageTime(latest.endedAt)}")
+                                    val details = latest.details
+                                    if (details == null) {
+                                        Text("Validity dates unavailable", style = MaterialTheme.typography.bodySmall)
+                                    } else {
+                                        Text(when (details.validityAt(validityCheckedAt)) {
+                                            TlsCertificateValidity.EXPIRED -> "Saved certificate expired"
+                                            TlsCertificateValidity.EXPIRING_SOON -> "Saved certificate expires within ${TlsCertificateDetails.EXPIRY_NOTICE_DAYS} days"
+                                            TlsCertificateValidity.NOT_YET_VALID -> "Saved certificate is not yet valid"
+                                            TlsCertificateValidity.VALID -> "Saved certificate is within its validity dates"
+                                        }, style = MaterialTheme.typography.bodySmall)
+                                        Text("Valid until (UTC) ${Instant.ofEpochMilli(details.notAfter)}",
+                                            style = MaterialTheme.typography.bodySmall)
+                                    }
                                     Text("SHA-256: ${latest.sha256}", style = MaterialTheme.typography.bodySmall)
                                     TextButton(onClick = { onOpenEvidence(latest.evidenceId) }) { Text("Open latest capture") }
                                 }
@@ -148,6 +165,22 @@ internal fun AssessmentCoverageDialog(
                                     TextButton(onClick = { onOpenEvidence(inspection.evidenceId) }) { Text("Open inspection") }
                                 }
                                 if (service.certificateHistories.isNotEmpty()) {
+                                    val validity = service.certificateHistories.groupingBy {
+                                        it.latest.details?.validityAt(validityCheckedAt)
+                                    }.eachCount()
+                                    val statuses = listOfNotNull(
+                                        validity[TlsCertificateValidity.EXPIRED]?.let { "$it expired" },
+                                        validity[TlsCertificateValidity.EXPIRING_SOON]?.let { "$it expiring within ${TlsCertificateDetails.EXPIRY_NOTICE_DAYS} days" },
+                                        validity[TlsCertificateValidity.NOT_YET_VALID]?.let { "$it not yet valid" },
+                                        validity[TlsCertificateValidity.VALID]?.let { "$it within validity dates" },
+                                        validity[null]?.let { "$it without validity dates" },
+                                    )
+                                    val attention = TlsCertificateValidity.EXPIRED in validity ||
+                                        TlsCertificateValidity.EXPIRING_SOON in validity ||
+                                        TlsCertificateValidity.NOT_YET_VALID in validity
+                                    Text("Latest saved certificates by TLS context: ${statuses.joinToString(", ")}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = if (attention) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
                                     val changes = service.certificateHistories.sumOf { it.changes.size }
                                     OutlinedButton(onClick = { certificatePort = service.port }) { Text("Certificate history ($changes changes)") }
                                 }

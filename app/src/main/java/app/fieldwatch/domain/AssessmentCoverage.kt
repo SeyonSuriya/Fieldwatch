@@ -17,6 +17,7 @@ data class CertificateCapture(
     val protocol: String,
     val endedAt: Long,
     val sha256: String,
+    val details: TlsCertificateDetails? = null,
 )
 
 data class CertificateChange(val previous: CertificateCapture, val current: CertificateCapture)
@@ -113,7 +114,8 @@ object AssessmentCoverage {
                         if (report.tlsProtocol != null && report.certificateSha256 != null &&
                             report.outcome != "tls-validation-or-handshake-failed") {
                             certificates.getOrPut(report.port) { mutableListOf() } += CertificateCapture(
-                                row.id, report.network, report.probe, report.tlsProtocol, report.endedAt, report.certificateSha256)
+                                row.id, report.network, report.probe, report.tlsProtocol, report.endedAt,
+                                report.certificateSha256, report.certificateDetails)
                         }
                     }
                 }
