@@ -318,6 +318,27 @@ class AssessmentStoreTest {
         assertEquals(30L, group.latest.endedAt)
         assertTrue(histories.filter { it != group }.all { it.changes.isEmpty() })
         assertTrue(ports.getValue(443).certificateHistories.single().changes.isEmpty())
+
+        // Review all captures so the history references cannot come from the pending-review list.
+        val ids = saved.evidence.map { it.id }
+        store.evaluateEvidenceBatch(engagement, ids, 94)
+        store.saveServiceDiscoveries(engagement, ids)
+        val report = AssessmentReports.exportAssessmentText(store.archive.value.engagements.single(), 5000, "test")
+        val lines = report.lines()
+        assertEquals(1, lines.count { it == "Fingerprint changes: 1" })
+        fun assertCapture(label: String, capture: CertificateCapture) {
+            val index = lines.indexOf(label)
+            assertTrue("Missing $label", index >= 0)
+            val reference = lines[index + 1].substringAfterLast(" · ")
+            assertTrue(reference.matches(Regex("E[0-9]+")))
+            assertEquals("  SHA-256 ${capture.sha256}", lines[index + 2])
+            val entry = lines.indexOf(reference)
+            assertTrue("Missing evidence index entry $reference", entry >= 0)
+            assertEquals(1, lines.count { it == reference })
+            assertEquals("  ${capture.evidenceId}", lines[entry + 4])
+        }
+        assertCapture("Previous certificate", change.previous)
+        assertCapture("Changed certificate", change.current)
     }
 
     @Test fun coverageDistinguishesTcpResultsCapturesAndReviewsOfEachSource() = runBlocking {

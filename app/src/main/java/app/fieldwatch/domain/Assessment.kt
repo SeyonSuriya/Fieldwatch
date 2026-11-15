@@ -240,8 +240,15 @@ object AssessmentReports {
         val findings = engagement.findings.sortedByDescending { it.severity }
         val coverage = AssessmentCoverage.summarize(engagement)
         val coverageSources = coverage.flatMap { target ->
-            target.services.flatMap { listOfNotNull(it.latestTcpEvidenceId, it.latestInspection?.evidenceId) } +
-                target.pendingReviews.map { it.evidenceId }
+            target.services.flatMap { service ->
+                val inspections = listOfNotNull(service.latestTcpEvidenceId, service.latestInspection?.evidenceId)
+                val certificates = service.certificateHistories.flatMap { history ->
+                    listOf(history.latest.evidenceId) + history.changes.flatMap {
+                        listOf(it.previous.evidenceId, it.current.evidenceId)
+                    }
+                }
+                inspections + certificates
+            } + target.pendingReviews.map { it.evidenceId }
         }
         val sourceIds = (findings.flatMap { it.evidenceIds } + coverageSources).distinct()
         val references = sourceIds.withIndex().associate { it.value to "E${it.index + 1}" }
@@ -318,12 +325,29 @@ object AssessmentReports {
                         "${inspection.probe.name.replace('_', ' ')} · ${inspection.outcome.replace('-', ' ')} · ${Instant.ofEpochMilli(inspection.endedAt)} · ${references.getValue(inspection.evidenceId)}")
                 } ?: appendLine("No service inspection saved.")
                 appendLine("Saved responses: ${service.capturedResponses}")
+                for (history in service.certificateHistories) {
+                    appendLine()
+                    appendLine("TLS certificate history")
+                    appendField("Saved Wi-Fi network", history.latest.network)
+                    appendField("TLS context", "${history.latest.probe.name.replace('_', ' ')} · ${history.latest.protocol}")
+                    appendLine("Verified captures: ${history.captureCount}")
+                    appendLine("Fingerprint changes: ${history.changes.size}")
+                    appendCertificateCapture("Latest certificate", history.latest, references)
+                    for (change in history.changes) {
+                        appendCertificateCapture("Previous certificate", change.previous, references)
+                        appendCertificateCapture("Changed certificate", change.current, references)
+                    }
+                }
             }
             for (pending in target.pendingReviews) {
                 val actions = listOfNotNull("checks".takeIf { pending.checks }, "software discovery".takeIf { pending.discovery })
                 appendField("Pending ${actions.joinToString(" and ")} (${references.getValue(pending.evidenceId)})", pending.title)
             }
         }
+    }
+
+    private fun StringBuilder.appendCertificateCapture(label: String, capture: CertificateCapture, references: Map<String, String>) {
+        appendField(label, "${Instant.ofEpochMilli(capture.endedAt)} · ${references.getValue(capture.evidenceId)}\nSHA-256 ${capture.sha256}")
     }
 
     private fun StringBuilder.appendField(label: String, value: String) {
