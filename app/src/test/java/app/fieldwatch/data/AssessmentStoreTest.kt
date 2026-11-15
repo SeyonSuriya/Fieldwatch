@@ -371,6 +371,31 @@ class AssessmentStoreTest {
         assertEquals(HttpAccessSignal.SUCCESS, change.previous.httpAccess)
         assertEquals(HttpAccessSignal.CHALLENGE, change.current.httpAccess)
         assertTrue(change.advertisedLabelChanged && change.httpAccessChanged)
+
+        // Neither capture is pending or the endpoint's latest inspection.
+        val ids = saved.evidence.map { it.id }
+        store.evaluateEvidenceBatch(engagement, ids, 94)
+        store.saveServiceDiscoveries(engagement, ids)
+        val snapshot = store.archive.value.engagements.single()
+        assertTrue(AssessmentCoverage.summarize(snapshot).single().pendingReviews.isEmpty())
+        // Remove findings in the export fixture so their references cannot mask missing change references.
+        val report = AssessmentReports.exportAssessmentText(snapshot.copy(findings = emptyList()), 5000, "test")
+        assertTrue(report.contains("Service changes (1)"))
+        val lines = report.lines()
+        fun assertExportedCapture(label: String, capture: ServiceCapture) {
+            val index = lines.indexOf(label)
+            assertTrue("Missing $label", index >= 0)
+            val reference = lines[index + 1].substringAfterLast(" · ")
+            assertTrue(reference.matches(Regex("E[0-9]+")))
+            assertEquals("  ${capture.advertisedLabel}", lines[index + 3])
+            assertEquals("  ${capture.httpAccess?.label}", lines[index + 5])
+            val entry = lines.indexOf(reference)
+            assertTrue("Missing evidence index entry $reference", entry >= 0)
+            assertEquals(1, lines.count { it == reference })
+            assertEquals("  ${capture.evidenceId}", lines[entry + 4])
+        }
+        assertExportedCapture("Previous inspection", change.previous)
+        assertExportedCapture("Changed inspection", change.current)
     }
 
     @Test fun coverageDistinguishesTcpResultsCapturesAndReviewsOfEachSource() = runBlocking {

@@ -247,7 +247,8 @@ object AssessmentReports {
                         listOf(it.previous.evidenceId, it.current.evidenceId)
                     }
                 }
-                inspections + certificates
+                val changes = service.serviceChanges.flatMap { listOf(it.previous.evidenceId, it.current.evidenceId) }
+                inspections + certificates + changes
             } + target.pendingReviews.map { it.evidenceId }
         }
         val sourceIds = (findings.flatMap { it.evidenceIds } + coverageSources).distinct()
@@ -325,6 +326,15 @@ object AssessmentReports {
                         "${inspection.probe.name.replace('_', ' ')} · ${inspection.outcome.replace('-', ' ')} · ${Instant.ofEpochMilli(inspection.endedAt)} · ${references.getValue(inspection.evidenceId)}")
                 } ?: appendLine("No service inspection saved.")
                 appendLine("Saved responses: ${service.capturedResponses}")
+                if (service.serviceChanges.isNotEmpty()) {
+                    appendLine()
+                    appendLine("Service changes (${service.serviceChanges.size})")
+                    for (change in service.serviceChanges) {
+                        appendField("Comparison context", "${change.current.network} · ${change.current.probe.name.replace('_', ' ')}")
+                        appendServiceCapture("Previous inspection", change.previous, change, references)
+                        appendServiceCapture("Changed inspection", change.current, change, references)
+                    }
+                }
                 for (history in service.certificateHistories) {
                     appendLine()
                     appendLine("TLS certificate history")
@@ -348,6 +358,14 @@ object AssessmentReports {
 
     private fun StringBuilder.appendCertificateCapture(label: String, capture: CertificateCapture, references: Map<String, String>) {
         appendField(label, "${Instant.ofEpochMilli(capture.endedAt)} · ${references.getValue(capture.evidenceId)}\nSHA-256 ${capture.sha256}")
+    }
+
+    private fun StringBuilder.appendServiceCapture(
+        label: String, capture: ServiceCapture, change: ServiceChange, references: Map<String, String>,
+    ) {
+        appendField(label, "${Instant.ofEpochMilli(capture.endedAt)} · ${references.getValue(capture.evidenceId)}")
+        if (change.advertisedLabelChanged) capture.advertisedLabel?.let { appendField("Advertised software or banner", it) }
+        if (change.httpAccessChanged) capture.httpAccess?.let { appendField("HTTP response behavior", it.label) }
     }
 
     private fun StringBuilder.appendField(label: String, value: String) {
